@@ -1,0 +1,1363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Money Plot Labs - Roth vs. Traditional Optimizer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        /* ── Tool 5 local styles ─────────────────────────────── */
+        .metrics-grid-4 {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-top: 16px;
+            margin-bottom: 24px;
+        }
+        @media (max-width: 700px) {
+            .metrics-grid-4 { grid-template-columns: repeat(2, 1fr); }
+        }
+        .survival-ok   { color: #10b981 !important; }
+        .survival-warn { color: #f59e0b !important; }
+        .survival-bad  { color: #ef4444 !important; }
+
+        .contrib-breakdown {
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            margin-top: 8px;
+            line-height: 1.7;
+        }
+        .contrib-breakdown span { color: var(--text-main); font-weight: 600; }
+        .contrib-row { display: flex; justify-content: space-between; }
+
+        .metric-note {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .age-595-note {
+            background: rgba(167, 139, 250, 0.12);
+            border: 1px solid rgba(167, 139, 250, 0.3);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 0.8rem;
+            color: #c4b5fd;
+            margin-bottom: 14px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>Money Plot Labs: Roth vs. Traditional Optimizer</h2>
+
+    <div class="age-595-note" id="note-post595">
+        ℹ️ Retirement is projected after age 59½ — Roth basis access is unrestricted. Basis runway analysis not applicable.
+    </div>
+
+    <div class="metrics-grid-4">
+        <div class="metric-card blue">
+            <div class="metric-label">Median Retire Age</div>
+            <div id="metric-retire-age" class="metric-value">Age --</div>
+            <div class="metric-note" id="note-retire-range"></div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Roth Basis at Retire</div>
+            <div id="metric-roth-basis" class="metric-value">$0</div>
+            <div class="metric-note" id="note-basis-per-yr"></div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">72(t) Annual Dist.</div>
+            <div id="metric-72t" class="metric-value">$0</div>
+            <div class="metric-note" id="note-gap"></div>
+        </div>
+        <div class="metric-card" id="card-penalty">
+            <div class="metric-label">Median Early Penalty</div>
+            <div id="metric-penalty" class="metric-value">$0</div>
+            <div class="metric-note" id="note-penalty-pct"></div>
+        </div>
+    </div>
+
+    <div class="layout-split">
+
+        <!-- ── Chart ─────────────────────────────────────────── -->
+        <div>
+            <div class="chart-header">
+                <span class="chart-label">Account Buckets Over Time (Median · P10/P90 Band for Total)</span>
+                <button class="btn-lock btn-lock-chart" id="btn-lock-scale">Lock Scale</button>
+            </div>
+            <div class="chart-container">
+                <canvas id="bucketChart"></canvas>
+            </div>
+
+            <div class="chart-header" style="margin-top:1.5rem;">
+                <span class="chart-label">Annual Income Sources</span>
+            </div>
+            <div class="chart-container" style="height:180px;">
+                <canvas id="incomeChart"></canvas>
+            </div>
+        </div>
+
+        <!-- ── Controls ──────────────────────────────────────── -->
+        <div class="controls">
+
+            <!-- Ages -->
+            <div class="control-group">
+                <label class="control-label">Current Age</label>
+                <div class="interactive-row">
+                    <input type="range"  id="sl-age"  min="18" max="75" value="30">
+                    <input type="number" id="bx-age"  class="manual-box" min="18" max="75" value="30">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Life Expectancy</label>
+                <div class="interactive-row">
+                    <input type="range"  id="sl-life"  min="50" max="120" value="95">
+                    <input type="number" id="bx-life"  class="manual-box" min="50" max="120" value="95">
+                </div>
+            </div>
+
+            <!-- Retire at Net Worth target -->
+            <div class="control-group">
+                <label class="control-label" id="lbl-nwtarget">Retire at Net Worth: $1,500,000</label>
+                <div class="interactive-row">
+                    <input type="range"  id="sl-nwtarget"  min="100000" max="10000000" step="50000" value="1500000">
+                    <input type="number" id="bx-nwtarget"  class="manual-box" value="1500000">
+                </div>
+            </div>
+
+            <!-- Spending -->
+            <div class="control-group">
+                <label class="control-label" id="lbl-spend">Annual Retirement Spending: $60,000</label>
+                <div class="interactive-row">
+                    <input type="range"  id="sl-spend"  min="10000" max="300000" step="5000" value="60000">
+                    <input type="number" id="bx-spend"  class="manual-box" value="60000">
+                </div>
+            </div>
+
+            <!-- Savings -->
+            <div class="control-group">
+                <label class="control-label" id="lbl-savings">Total Annual Savings: $50,000</label>
+                <div class="interactive-row">
+                    <input type="range"  id="sl-savings"  min="0" max="300000" step="1000" value="50000">
+                    <input type="number" id="bx-savings"  class="manual-box" value="50000">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label" id="lbl-match">Employer Match (→ Pre-tax 401k): $5,000</label>
+                <div class="interactive-row">
+                    <input type="range"  id="sl-match"  min="0" max="70000" step="500" value="5000">
+                    <input type="number" id="bx-match"  class="manual-box" value="5000">
+                </div>
+            </div>
+
+            <!-- THE key slider -->
+            <div class="control-group">
+                <label class="control-label" id="lbl-rpct">Employee Contributions → Roth: 50%</label>
+                <div class="interactive-row">
+                    <input type="range"  id="sl-rpct"  min="0" max="100" step="5" value="50">
+                    <input type="number" id="bx-rpct"  class="manual-box" min="0" max="100" value="50">
+                </div>
+                <!-- Live contribution breakdown -->
+                <div class="contrib-breakdown" id="contrib-breakdown">
+                    Loading…
+                </div>
+            </div>
+
+            <!-- Growth -->
+            <div class="control-group">
+                <label class="control-label" id="lbl-mean">Mean Real Growth Rate: 5.9%</label>
+                <div class="interactive-row">
+                    <input type="range"  id="sl-mean"  min="0" max="12" step="0.1" value="5.9">
+                    <input type="number" id="bx-mean"  class="manual-box" step="0.1" value="5.9">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label" id="lbl-std">Growth Std Dev: 12.5%</label>
+                <div class="interactive-row">
+                    <input type="range"  id="sl-std"  min="0" max="30" step="0.5" value="12.5">
+                    <input type="number" id="bx-std"  class="manual-box" step="0.1" value="12.5">
+                </div>
+            </div>
+
+            <!-- Current balances (advanced) -->
+            <div class="advanced-toggle" id="adv-btn">
+                <span>Starting Balances</span>
+                <svg class="chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+            <div class="advanced-content" id="adv-panel">
+
+                <div class="control-group">
+                    <label class="control-label" id="lbl-pretax">Pre-tax Balance (401k / IRA): $0</label>
+                    <div class="interactive-row">
+                        <input type="range"  id="sl-pretax"  min="0" max="2000000" step="10000" value="0">
+                        <input type="number" id="bx-pretax"  class="manual-box" value="0">
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label" id="lbl-roth">Roth Balance (401k + IRA): $0</label>
+                    <div class="interactive-row">
+                        <input type="range"  id="sl-roth"  min="0" max="1000000" step="5000" value="0">
+                        <input type="number" id="bx-roth"  class="manual-box" value="0">
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label" id="lbl-rbasis">Roth Basis (contributions only): $0</label>
+                    <div class="interactive-row">
+                        <input type="range"  id="sl-rbasis"  min="0" max="1000000" step="5000" value="0">
+                        <input type="number" id="bx-rbasis"  class="manual-box" value="0">
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label" id="lbl-taxable">Taxable Balance: $0</label>
+                    <div class="interactive-row">
+                        <input type="range"  id="sl-taxable"  min="0" max="2000000" step="10000" value="0">
+                        <input type="number" id="bx-taxable"  class="manual-box" value="0">
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="control-label" id="lbl-txbasis">Taxable Basis (cost basis): $0</label>
+                    <div class="interactive-row">
+                        <input type="range"  id="sl-txbasis"  min="0" max="2000000" step="10000" value="0">
+                        <input type="number" id="bx-txbasis"  class="manual-box" value="0">
+                    </div>
+                </div>
+
+                <p class="doc-notes" style="margin-top:10px;">
+                    <strong>Roth Basis</strong> = total lifetime Roth contributions (not growth).
+                    Can be withdrawn at any age, tax- and penalty-free. Must be ≤ Roth Balance.
+                    <br>
+                    <strong>Taxable Basis</strong> = what you originally paid for the holdings in your
+                    taxable account (cost basis). The balance above this is unrealized gain, taxed
+                    when withdrawn. Leave at $0 to assume the whole balance is gains (worst case).
+                    Must be ≤ Taxable Balance.
+                </p>
+
+            </div><!-- /adv-panel -->
+        </div><!-- /controls -->
+    </div><!-- /layout-split -->
+
+    <div class="doc-footer">
+        <div class="doc-notes">
+            <p>
+                <strong>Retirement Trigger:</strong> Each of the 500 stochastic runs retires
+                independently the first year total NW ≥ the target (Tool 3 method). The
+                "Median Retire Age" card shows the P50 outcome; the P10–P90 range reflects
+                sequence-of-returns uncertainty. Once retired, pre-tax funds are distributed
+                via IRS <strong>72(t) fixed amortization</strong> — equal annual withdrawals
+                lasting the full planning horizon, no early-withdrawal penalty.
+                Remaining spending draws from <em>taxable</em> first, then <em>Roth basis</em>.
+            </p>
+            <p>
+                <strong>Withdrawal order each year:</strong>
+                (1) <strong>Pre-tax 72(t)</strong> — fixed amortized draw for full retirement, taken first.
+                If this covers all spending, nothing else is touched.
+                (2) <strong>Roth basis</strong> — spread flat to deplete exactly at 59½ (penalty-free at any age).
+                (3) <strong>Taxable</strong> — amortized smoothly over full retirement to spread capital-gain
+                realisations; gains and return-of-basis portions tracked separately.
+                (4) <strong>Roth gains</strong> — last resort; free after 59½, 10% penalty before.
+                After 59½ the order is: pre-tax 72(t) → taxable → full Roth (basis then gains, no penalty).
+            </p>
+            <p>
+                <strong>Withdrawal order is a simplifying assumption.</strong> This fixed sequence is
+                <em>not</em> a recommendation. Real-world sourcing depends on factors this tool does
+                not model — ACA premium-subsidy thresholds (taxable gains raise MAGI, while Roth basis
+                and qualified Roth distributions do not), FAFSA income reporting for households with
+                college-age children, current vs. expected future tax brackets, NIIT and IRMAA, state
+                taxes, and capital-gain harvesting opportunities. The right order is individual and may
+                change year to year. A visible consequence of this assumption: because the Roth-basis
+                bridge is scheduled to deplete at 59½, the taxable draw is small before 59½ (it only
+                fills the gap left after the bridge) and then steps up sharply once the bridge ends and
+                taxable becomes the primary gap-filler. That jump is the assumption showing through, not
+                a forced real-world outcome.
+            </p>
+            <p>
+                <strong>Key Question:</strong> Is your Roth basis enough to bridge retirement → 59½?
+                If 72(t) + smooth taxable draw fall short before 59½, Roth basis fills the gap.
+                If basis runs out too, Roth gains are tapped with a 10% penalty.
+                The "Median Early Penalty" card quantifies this cost.
+                Shifting more contributions to Roth grows your basis but shrinks the 72(t), which
+                can increase reliance on Roth gains later — the slider finds the balance.
+            </p>
+            <p>
+                <strong>Contribution Limits (2025 · Household of 2):</strong>
+                Employee 401k (pre-tax + Roth): $47,000 ·
+                Roth IRA: $14,000 ·
+                Mega-backdoor (after-tax → Roth): up to ~$93k minus employer match ·
+                Taxable: unlimited.
+                No tax drag modeled — all accounts use the same gross return.
+            </p>
+            <p>
+                <strong>⚠️ Taxes not modeled.</strong> This tool ignores income taxes entirely —
+                all withdrawals are treated as if tax-free. In reality, pre-tax 72(t) distributions
+                are ordinary income, and the gains portion of taxable withdrawals are subject to
+                capital gains tax. If your combined 72(t) + taxable-gains withdrawals push your
+                retirement income into a higher bracket than your current marginal rate, you would
+                have been better off contributing to <em>Roth</em> while working (pay tax now at the
+                lower rate) rather than pre-tax (pay tax later at the higher rate). The opposite is
+                true if your retirement withdrawals land in a lower bracket than today — pre-tax
+                wins. The "right" split depends on your current vs. expected retirement tax rates,
+                which this tool intentionally leaves for a future version.
+            </p>
+        </div>
+    </div>
+
+    <nav class="tools-nav">
+        <a href="index.html" class="nav-item" title="Static, Closed-form calculus">
+            1. Macro Sandbox
+            <span>High-level Engine</span>
+        </a>
+        <a href="LifepathCashFlowSimulator.html" class="nav-item" title="Year-by-year cash flow">
+            2. Cash Flow Planner
+            <span>Variable Yearly Flow</span>
+        </a>
+        <a href="StressTester.html" class="nav-item" title="Stochastic lifepath">
+            3. Stress Tester
+            <span>Lifepath Volatility</span>
+        </a>
+        <a href="HSATransfer.html" class="nav-item" title="HSA fee optimization">
+            4. HSA Transfer
+            <span>Fee Optimization</span>
+        </a>
+        <a href="#" class="nav-item active" title="Roth vs. Traditional bucket strategy">
+            5. Roth Optimizer
+            <span>Bucket Strategy</span>
+        </a>
+    </nav>
+
+</div><!-- /container -->
+
+<script src="common.js"></script>
+<script src="engine.js"></script>
+<script>
+/* ============================================================
+   Tool 5 — Roth vs. Traditional Optimizer
+   Stochastic bucket simulation for Roth basis sufficiency.
+
+   Simulation model:
+     • Accumulation  : contributions split per allocation slider
+     • Retirement    : stochastic NW crossing (Tool 3 method) — each run
+                       retires when total NW ≥ nwTarget
+     • Decumulation  : 72(t) from pre-tax; gap → taxable → Roth basis
+     • Key metric    : % of stochastic runs where Roth basis lasts to 59½
+   ============================================================ */
+'use strict';
+
+// ── Contribution limits 2025 (household of 2) ────────────────
+const LIM_EMP_401K   = 47_000;   // employee elective, both people
+const LIM_ROTH_IRA   = 14_000;   // Roth IRA, both people
+const LIM_TOTAL_401K = 140_000;  // total 401k (incl. employer), both people
+
+const N_RUNS  = 500;
+const AGE_595 = 59.5;
+
+// ── Module state ─────────────────────────────────────────────
+let chart      = null;
+let chart2     = null;
+let lockedYMax = null;
+let lastP      = null;
+let lastR      = null;
+
+// ── Math helpers ─────────────────────────────────────────────
+function randn(mean, std) {
+    // Box–Muller normal sample
+    const u1 = Math.random(), u2 = Math.random();
+    return mean + std * Math.sqrt(-2 * Math.log(u1 || 1e-10)) * Math.cos(2 * Math.PI * u2);
+}
+
+function annuityPmt(balance, rate, years) {
+    // Fixed-amortisation equal annual payment that amortises `balance` over `years`
+    if (years <= 0) return 0;
+    if (Math.abs(rate) < 1e-6) return balance / years;
+    return balance * rate / (1 - Math.pow(1 + rate, -years));
+}
+
+// ── Contribution allocation ───────────────────────────────────
+function allocate(savings, match, rothPct) {
+    const emp = Math.max(0, savings - match);   // employee portion (after match)
+
+    // 401k: split between trad and Roth up to employee elective limit
+    const e401k    = Math.min(emp, LIM_EMP_401K);
+    const roth401k = e401k * (rothPct / 100);
+    const trad401k = e401k - roth401k;
+
+    let rem = emp - e401k;
+
+    // Roth IRA
+    const rothIra = Math.min(rem, LIM_ROTH_IRA);
+    rem -= rothIra;
+
+    // Mega-backdoor after-tax → Roth
+    // Space = total-401k-limit  −  employee-elective  −  employer-match
+    const mbSpace = Math.max(0, LIM_TOTAL_401K - LIM_EMP_401K - match);
+    const megaBd  = Math.min(rem, mbSpace);
+    rem -= megaBd;
+
+    // Taxable: anything that doesn't fit in tax-advantaged space
+    const taxable = Math.max(0, rem);
+
+    return {
+        pretax:    match + trad401k,
+        roth:      roth401k + rothIra + megaBd,
+        rothBasis: roth401k + rothIra + megaBd,   // all Roth contribs are basis
+        taxable,
+    };
+}
+
+// ── Core stochastic simulation ────────────────────────────────
+// Retirement is triggered per-run when total NW ≥ nwTarget (Tool 3 method).
+function simulate(p) {
+    const { age, life, spend, savings, match, rothPct,
+            pretaxBal, rothBal, rothBasisBal, taxableBal, taxableBasisBal,
+            nwTarget, mean, std } = p;
+
+    const g          = mean / 100;
+    const s          = std  / 100;
+    const totalYears = life - age;
+    const nAges      = totalYears + 1;
+    const c          = allocate(savings, match, rothPct);
+
+    // Result buffers — arrays of per-run values, indexed by age offset
+    const B = {
+        pretax:  Array.from({ length: nAges }, () => []),
+        roth:    Array.from({ length: nAges }, () => []),
+        taxbl:   Array.from({ length: nAges }, () => []),
+        basis:   Array.from({ length: nAges }, () => []),
+        // Annual spending flows (for the waterfall chart) — all five sources
+        inc_p:   Array.from({ length: nAges }, () => []),   // 72(t) pre-tax drawn
+        inc_txg: Array.from({ length: nAges }, () => []),   // taxable gains drawn
+        inc_txb: Array.from({ length: nAges }, () => []),   // taxable basis drawn
+        inc_rb:  Array.from({ length: nAges }, () => []),   // Roth basis drawn
+        inc_rg:  Array.from({ length: nAges }, () => []),   // Roth gains drawn
+    };
+
+    // Per-run stats collected for aggregation
+    const retireAges     = [];
+    const pretaxAtRetire = [];
+    const basisAtRetire  = [];
+    const med72tArr      = [];
+    const penaltyArr     = [];
+
+    for (let run = 0; run < N_RUNS; run++) {
+        let pt = pretaxBal;
+        let ro = rothBal;
+        let bx = Math.min(rothBasisBal, rothBal);
+        let tx = taxableBal;
+        // Taxable cost basis: seeded from the starting Taxable Basis input
+        // (clamped to the balance). The portion above basis is unrealized gain.
+        // New contributions add to basis as they're made.
+        let txCB = Math.min(Math.max(0, taxableBasisBal), taxableBal);
+
+        B.pretax [0].push(pt);
+        B.roth   [0].push(ro);
+        B.taxbl  [0].push(tx);
+        B.basis  [0].push(bx);
+        B.inc_p  [0].push(0);
+        B.inc_txg[0].push(0);
+        B.inc_txb[0].push(0);
+        B.inc_rb [0].push(0);
+        B.inc_rg [0].push(0);
+
+        // ── Accumulate until NW target crossed ───────────────
+        let retireIdx = totalYears;   // default: never crossed → work whole life
+        for (let i = 0; i < totalYears; i++) {
+            if (pt + ro + tx >= nwTarget) {
+                retireIdx = i;
+                break;
+            }
+            const r = randn(g, s);
+            pt   = pt * (1 + r) + c.pretax;
+            ro   = ro * (1 + r) + c.roth;
+            bx   = bx + c.rothBasis;      // basis never compounds
+            tx   = tx * (1 + r) + c.taxable;
+            txCB = txCB + c.taxable;       // only contributions add to basis
+            if (i + 1 < nAges) {
+                push4(B, i + 1, pt, ro, tx, bx);
+                B.inc_p  [i + 1].push(0);
+                B.inc_txg[i + 1].push(0);
+                B.inc_txb[i + 1].push(0);
+                B.inc_rb [i + 1].push(0);
+                B.inc_rg [i + 1].push(0);
+            }
+        }
+
+        const retireAge = age + retireIdx;
+        retireAges.push(retireAge);
+        pretaxAtRetire.push(pt);
+        basisAtRetire.push(bx);
+
+        const decYears    = Math.max(1, life - retireAge);
+        const bridgeYears = Math.max(0, AGE_595 - retireAge);
+
+        // Three fixed annual draws, all computed once at the moment of retirement.
+        // Goal: spread capital-gain realisations and Roth-basis draws evenly rather
+        // than front-loading taxable at the start of retirement.
+        //
+        //   pmt_p  — 72(t) fixed amortisation of pre-tax over full retirement
+        //   pmt_bx — flat Roth-basis draw sized to deplete basis exactly at 59½
+        //            (basis doesn't compound, so simple division is exact)
+        //   pmt_tx — 72(t)-style amortisation of taxable over full retirement
+        //            (defers capital-gain realisations; mirrors pre-tax 72t logic)
+        //
+        // Withdrawal order each year:
+        //   pre-tax 72(t)         [forced]
+        //   → Roth basis (flat)   [penalty-free, scheduled to 59½]
+        //   → taxable (smooth)    [spread over full retirement, caps at gap]
+        //   → Roth gains          [free after 59½; 10% penalty before]
+        //   → destitution         [all accounts at zero]
+        const pmt_p  = annuityPmt(pt, g, decYears);
+        const pmt_bx = bridgeYears > 0 ? bx / bridgeYears : 0;
+        const pmt_tx = annuityPmt(tx, g, decYears);
+        med72tArr.push(pmt_p);
+
+        let penaltyPaid = 0;
+
+        for (let i = 0; i < decYears; i++) {
+            const curAge = retireAge + i;
+            const r      = randn(g, s);
+
+            pt = Math.max(0, pt * (1 + r));
+            ro = Math.max(0, ro * (1 + r));
+            tx = Math.max(0, tx * (1 + r));
+            // txCB doesn't compound — only the market value grows
+
+            // Pre-tax 72(t) — fixed SEPP schedule, forced regardless of need.
+            const dist_p = Math.min(pmt_p, pt);
+            pt -= dist_p;
+
+            // The 72(t) payment can exceed spending (it amortises the whole
+            // pre-tax balance). The part that covers spending is `spent_p`;
+            // the forced excess can't be put back, so it's reinvested into the
+            // taxable account (added as cost basis — it's already-taxed cash).
+            // Only `spent_p` counts toward the spending-coverage chart so the
+            // stacked bars reconcile to the spending line.
+            const spent_p  = Math.min(dist_p, spend);
+            const excess_p = dist_p - spent_p;
+            if (excess_p > 0) {
+                tx   += excess_p;
+                txCB += excess_p;
+            }
+
+            // Gains ratio of taxable at this point (before any withdrawal this year)
+            // = fraction of current tx balance that is gains (not cost basis)
+            const txGainsRatio = tx > 0 ? Math.max(0, 1 - txCB / tx) : 0;
+
+            // Helper: withdraw d from taxable; returns { gains, basis } portions.
+            const drawTx = (d) => {
+                const gains = d * txGainsRatio;
+                const basis = d - gains;
+                txCB = Math.max(0, txCB - basis);
+                tx  -= d;
+                return { gains, basis };
+            };
+
+            // Helper: withdraw d from Roth (basis first, then gains); returns { basisDrn, gainsDrn }.
+            const drawRo = (d) => {
+                const basisDrn = Math.min(d, bx);
+                const gainsDrn = d - basisDrn;
+                bx -= basisDrn;
+                ro -= d;
+                return { basisDrn, gainsDrn };
+            };
+
+            let gap       = Math.max(0, spend - dist_p);
+            let txGainsDrn = 0, txBasisDrn = 0;
+            let roBasDrn   = 0, roGainDrn  = 0;
+
+            if (gap > 0) {
+                if (curAge < AGE_595) {
+                    // 1. Roth basis — scheduled flat draw to deplete at 59½
+                    const dist_bx = Math.min(pmt_bx, Math.min(bx, gap));
+                    ro      -= dist_bx;
+                    bx      -= dist_bx;
+                    roBasDrn = dist_bx;
+                    gap     -= dist_bx;
+
+                    // 2. Taxable — smooth amortised draw
+                    if (gap > 0) {
+                        const dist_tx = Math.min(pmt_tx, Math.min(tx, gap));
+                        const t = drawTx(dist_tx);
+                        txGainsDrn = t.gains;
+                        txBasisDrn = t.basis;
+                        gap -= dist_tx;
+                    }
+
+                    // 3. Roth gains (10% penalty before 59½)
+                    if (gap > 0) {
+                        const avail = Math.max(0, ro - bx);
+                        const d = Math.min(gap, avail);
+                        ro          -= d;
+                        bx           = Math.min(bx, ro);
+                        roGainDrn    = d;
+                        penaltyPaid += d * 0.10;
+                        gap         -= d;
+                    }
+
+                    // 4. Remaining Roth basis (penalty-free fallback)
+                    if (gap > 0 && bx > 0) {
+                        const d  = Math.min(gap, bx);
+                        ro      -= d;
+                        bx      -= d;
+                        roBasDrn += d;
+                        gap      -= d;
+                    }
+
+                    // 5. Extra taxable (smooth draw is a target, not a cap;
+                    //    draw more before going truly destitute)
+                    if (gap > 0 && tx > 0) {
+                        const d = Math.min(gap, tx);
+                        const t = drawTx(d);
+                        txGainsDrn += t.gains;
+                        txBasisDrn += t.basis;
+                        gap -= d;
+                    }
+                } else {
+                    // 1. Taxable smooth draw
+                    const dist_tx = Math.min(pmt_tx, Math.min(tx, gap));
+                    const t = drawTx(dist_tx);
+                    txGainsDrn = t.gains;
+                    txBasisDrn = t.basis;
+                    gap -= dist_tx;
+
+                    // 2. Full Roth (no penalty after 59½)
+                    if (gap > 0) {
+                        const d  = Math.min(gap, ro);
+                        const rb = drawRo(d);
+                        roBasDrn  = rb.basisDrn;
+                        roGainDrn = rb.gainsDrn;
+                        gap -= d;
+                    }
+
+                    // 3. Extra taxable fallback (smooth draw is a target, not a cap)
+                    if (gap > 0 && tx > 0) {
+                        const d = Math.min(gap, tx);
+                        const t = drawTx(d);
+                        txGainsDrn += t.gains;
+                        txBasisDrn += t.basis;
+                        gap -= d;
+                    }
+                }
+            }
+
+            // gap > 0 here = fully destitute
+            bx = Math.max(0, Math.min(bx, ro));
+
+            const idx = retireIdx + i + 1;
+            if (idx < nAges) {
+                push4(B, idx, Math.max(0, pt), Math.max(0, ro), Math.max(0, tx), Math.max(0, bx));
+                B.inc_p  [idx].push(spent_p);
+                B.inc_txg[idx].push(txGainsDrn);
+                B.inc_txb[idx].push(txBasisDrn);
+                B.inc_rb [idx].push(roBasDrn);
+                B.inc_rg [idx].push(roGainDrn);
+            }
+        }
+
+        penaltyArr.push(penaltyPaid);
+    }
+
+    // ── Aggregate percentiles ─────────────────────────────────
+    const srt = a => [...a].sort((x, y) => x - y);
+    const p50 = arr => arr.map(a => percentile(srt(a), 50));
+    const p10 = arr => arr.map(a => percentile(srt(a), 10));
+    const p90 = arr => arr.map(a => percentile(srt(a), 90));
+
+    const total = B.pretax.map((pt, i) =>
+        pt.map((v, j) => v + B.roth[i][j] + B.taxbl[i][j])
+    );
+
+    const sRetire = srt(retireAges);
+    const medRetireAge    = percentile(sRetire, 50);
+    const p10RetireAge    = percentile(sRetire, 10);
+    const p90RetireAge    = percentile(sRetire, 90);
+
+    const medBasisAtRetire  = percentile(srt(basisAtRetire), 50);
+    const medPretaxAtRetire = percentile(srt(pretaxAtRetire), 50);
+
+    const medDecYears = Math.max(1, life - medRetireAge);
+    const med72t = annuityPmt(medPretaxAtRetire, g, medDecYears);
+
+    const sPenalty    = srt(penaltyArr);
+    const medPenalty  = percentile(sPenalty, 50);
+    const pctPenalty  = penaltyArr.filter(v => v > 0).length / N_RUNS * 100;
+
+    // Conditional mean: average each income source only over runs in decumulation at
+    // that age. Because the condition is identical for all five sources, the means are
+    // additive — bars sum to spending whenever runs are solvent.
+    // Require ≥5% of runs retired before showing anything (avoids sparse-edge noise).
+    const condMeanInc = (arr) => arr.map((a, ageIdx) => {
+        const curAge = age + ageIdx;
+        let sum = 0, count = 0;
+        a.forEach((v, ri) => {
+            if (curAge > retireAges[ri]) { sum += v; count++; }
+        });
+        return count >= N_RUNS * 0.05 ? sum / count : 0;
+    });
+
+    return {
+        ages:       Array.from({ length: nAges }, (_, i) => age + i),
+        pretaxP50:  p50(B.pretax),
+        rothP50:    p50(B.roth),
+        taxblP50:   p50(B.taxbl),
+        basisP50:   p50(B.basis),
+        totP10:     p10(total),
+        totP50:     p50(total),
+        totP90:     p90(total),
+        incPCM:    condMeanInc(B.inc_p),    // 72(t) drawn — conditional mean
+        incTxgCM:  condMeanInc(B.inc_txg), // taxable gains
+        incTxbCM:  condMeanInc(B.inc_txb), // taxable basis
+        incRbCM:   condMeanInc(B.inc_rb),  // Roth basis
+        incRgCM:   condMeanInc(B.inc_rg),  // Roth gains
+        medBasisAtRetire,
+        med72t,
+        medRetireAge,
+        p10RetireAge,
+        p90RetireAge,
+        medPenalty,
+        pctPenalty,
+    };
+}
+
+// ── Income chart ─────────────────────────────────────────────
+function buildIncomeChart(r, retireAge, currentAge, lifeExp, spend) {
+    if (chart2) chart2.destroy();
+
+    // Bar chart uses a category scale; getPixelForValue takes a label index,
+    // not a raw age value. Interpolate between adjacent integer-age categories
+    // to place fractional ages (like 59.5) correctly.
+    const ageToPixel = (ch, xv) => {
+        const labels = ch.data.labels;
+        const hi = labels.findIndex(a => +a >= xv);
+        if (hi < 0) return null;
+        if (+labels[hi] === xv || hi === 0) return ch.scales.x.getPixelForValue(hi);
+        const t  = (xv - +labels[hi - 1]) / (+labels[hi] - +labels[hi - 1]);
+        return ch.scales.x.getPixelForValue(hi - 1) * (1 - t) +
+               ch.scales.x.getPixelForValue(hi)     * t;
+    };
+
+    const vertPlugin = {
+        id: 'vlines2',
+        beforeDraw(ch) {
+            const { ctx: c2, scales: { y } } = ch;
+            [
+                { xv: retireAge, col: '#f59e0b', lbl: 'Retire' },
+                ...(AGE_595 > currentAge && AGE_595 < lifeExp
+                    ? [{ xv: AGE_595, col: '#a78bfa', lbl: '59½' }]
+                    : []),
+            ].forEach(({ xv, col, lbl }) => {
+                const px = ageToPixel(ch, xv);
+                if (px === null) return;
+                c2.save();
+                c2.setLineDash([4, 4]);
+                c2.strokeStyle = col;
+                c2.lineWidth   = 1.5;
+                c2.beginPath();
+                c2.moveTo(px, y.top);
+                c2.lineTo(px, y.bottom);
+                c2.stroke();
+                c2.fillStyle = col;
+                c2.font      = '11px system-ui, sans-serif';
+                c2.fillText(lbl, px + 4, y.top + 14);
+                c2.restore();
+            });
+        },
+    };
+
+    // Stacked bar chart — each segment is the actual annual $ from that source.
+    // Uses conditional mean so bars are additive and sum to spending when solvent.
+    // Zero values (pre-retirement) become null so no bar is drawn.
+    const total5 = r.incPCM.map((v, i) =>
+        v + r.incTxgCM[i] + r.incTxbCM[i] + r.incRbCM[i] + r.incRgCM[i]);
+
+    // Funded income is averaged across all retired runs. Once some runs have
+    // depleted their savings they draw less than spending, so the average bar
+    // height falls below the spending line. That gap is real (unfunded
+    // spending from runs that ran out of money) — surface it as its own
+    // segment so the stack always reconciles to the spending line instead of
+    // appearing to "not add up". Only shown for ages where runs have retired.
+    const shortfall = total5.map(t => t > 0 ? Math.max(0, spend - t) : null);
+
+    const rawPeak = Math.max(...total5.filter(isFinite), spend);
+    const yMax    = snapCeiling(rawPeak);
+
+    // Suppress zero bars (pre-retirement years where no runs have retired yet)
+    const fromRetire = (arr) => arr.map(v => v > 0 ? v : null);
+
+    const barDs = (label, data, bg, border) => ({
+        type: 'bar',
+        label,
+        data: fromRetire(data),
+        backgroundColor: bg,
+        borderColor: border,
+        borderWidth: 0,
+        stack: 'spending',
+    });
+
+    chart2 = new Chart(
+        document.getElementById('incomeChart').getContext('2d'),
+        {
+            type: 'bar',
+            plugins: [vertPlugin],
+            data: {
+                labels: r.ages,
+                datasets: [
+                    barDs('Pre-tax 72(t)',  r.incPCM,   'rgba(249,115,22,0.80)',  '#f97316'),
+                    barDs('Taxable gains',  r.incTxgCM, 'rgba(167,139,250,0.80)', '#a78bfa'),
+                    barDs('Taxable basis',  r.incTxbCM, 'rgba(124,58,237,0.70)',  '#7c3aed'),
+                    barDs('Roth basis',     r.incRbCM,  'rgba(16,185,129,0.80)',  '#10b981'),
+                    barDs('Roth gains',     r.incRgCM,  'rgba(110,231,183,0.75)', '#6ee7b7'),
+                    {
+                        // Unfunded gap — runs that have depleted savings. Stacks
+                        // on top so the bar reaches the spending line; the height
+                        // is the average shortfall, not an income source.
+                        type: 'bar',
+                        label: 'Unfunded (savings depleted)',
+                        data: shortfall,
+                        backgroundColor: 'rgba(239,68,68,0.18)',
+                        borderColor: 'rgba(239,68,68,0.5)',
+                        borderWidth: 1,
+                        borderDash: [3, 3],
+                        stack: 'spending',
+                    },
+                    {
+                        // Spending reference — line overlaid on the bar chart
+                        type: 'line',
+                        label: 'Spending',
+                        data: r.ages.map(a => a >= retireAge ? spend : null),
+                        borderColor: 'rgba(248,250,252,0.45)',
+                        borderDash: [4, 4],
+                        borderWidth: 1.5,
+                        fill: false,
+                        pointRadius: 0,
+                        tension: 0,
+                        order: -1,   // draw on top of bars
+                    },
+                ],
+            },
+            options: {
+                animation: false,
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                scales: {
+                    x: {
+                        stacked: true,
+                        ticks: { color: '#94a3b8', maxTicksLimit: 12 },
+                        grid:   { color: 'rgba(255,255,255,0.04)' },
+                        title:  { display: true, text: 'Age', color: '#94a3b8' },
+                    },
+                    y: {
+                        stacked: true,
+                        min: 0,
+                        max: yMax,
+                        ticks: {
+                            color: '#94a3b8',
+                            callback: v =>
+                                v >= 1e6 ? `$${(v/1e6).toFixed(1)}M`
+                              : v >= 1e3 ? `$${(v/1e3).toFixed(0)}k`
+                              : `$${v}`,
+                        },
+                        grid: { color: 'rgba(255,255,255,0.04)' },
+                    },
+                },
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { color: '#94a3b8', boxWidth: 12, font: { size: 11 } },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: it  => `Age ${it[0].label}`,
+                            label: it  => it.raw > 0 || it.dataset.type === 'line'
+                                ? `${it.dataset.label}: ${formatCurrency(it.raw)}`
+                                : null,
+                            footer: its => {
+                                const isReal = it =>
+                                    it.dataset.type !== 'line' &&
+                                    it.dataset.label !== 'Unfunded (savings depleted)';
+                                const covered = its
+                                    .filter(isReal)
+                                    .reduce((s, it) => s + (it.raw || 0), 0);
+                                if (covered <= 0) return '';
+                                const unfunded = its
+                                    .filter(it => it.dataset.label === 'Unfunded (savings depleted)')
+                                    .reduce((s, it) => s + (it.raw || 0), 0);
+                                return unfunded > 1
+                                    ? `Avg covered: ${formatCurrency(covered)} · Unfunded: ${formatCurrency(unfunded)}`
+                                    : `Total covered: ${formatCurrency(covered)}`;
+                            },
+                        },
+                    },
+                },
+            },
+        }
+    );
+}
+
+function push4(B, idx, pt, ro, tx, bx) {
+    B.pretax[idx].push(pt);
+    B.roth  [idx].push(ro);
+    B.taxbl [idx].push(tx);
+    B.basis [idx].push(bx);
+}
+
+// ── Contribution breakdown display ───────────────────────────
+function updateBreakdown(savings, match, rothPct) {
+    const c = allocate(savings, match, rothPct);
+    const el = document.getElementById('contrib-breakdown');
+    const row = (label, val, color) =>
+        `<div class="contrib-row"><span>${label}</span><span style="color:${color}">${formatCurrency(val)}</span></div>`;
+    el.innerHTML =
+        row('Employer match → Pre-tax 401k', match, '#f97316') +
+        row(`Trad. 401k (${(100 - rothPct).toFixed(0)}%)`, c.pretax - match, '#f97316') +
+        row(`Roth 401k + IRA + Mega-BD (${rothPct.toFixed(0)}%)`, c.roth, '#10b981') +
+        row('Taxable (overflow)', c.taxable, '#a78bfa');
+}
+
+// ── Y-axis helpers ────────────────────────────────────────────
+// Max value across all currently-visible datasets in a live chart instance.
+function liveVisibleMax(ci) {
+    let peak = 0;
+    ci.data.datasets.forEach((ds, i) => {
+        if (ci.isDatasetVisible(i)) {
+            ds.data.forEach(v => { if (isFinite(v)) peak = Math.max(peak, v); });
+        }
+    });
+    return peak;
+}
+
+// Max value across datasets that are not pre-hidden (for initial render
+// before a Chart instance exists — checks dataset.hidden flag).
+function initialVisibleMax(datasets) {
+    let peak = 0;
+    datasets.forEach(ds => {
+        if (!ds.hidden) {
+            ds.data.forEach(v => { if (isFinite(v)) peak = Math.max(peak, v); });
+        }
+    });
+    return peak;
+}
+
+// ── Chart ─────────────────────────────────────────────────────
+function buildChart(r, retireAge, currentAge, lifeExp) {
+    const canvas = document.getElementById('bucketChart');
+    if (chart) chart.destroy();
+
+    const vertPlugin = {
+        id: 'vlines',
+        beforeDraw(ch) {
+            const { ctx: c2, scales: { x, y } } = ch;
+            [
+                { xv: retireAge, col: '#f59e0b', lbl: 'Retire' },
+                ...(AGE_595 > currentAge && AGE_595 < lifeExp
+                    ? [{ xv: AGE_595, col: '#a78bfa', lbl: '59½' }]
+                    : []),
+            ].forEach(({ xv, col, lbl }) => {
+                const px = x.getPixelForValue(xv);
+                c2.save();
+                c2.setLineDash([4, 4]);
+                c2.strokeStyle = col;
+                c2.lineWidth   = 1.5;
+                c2.beginPath();
+                c2.moveTo(px, y.top);
+                c2.lineTo(px, y.bottom);
+                c2.stroke();
+                c2.fillStyle = col;
+                c2.font      = '11px system-ui, sans-serif';
+                c2.fillText(lbl, px + 4, y.top + 14);
+                c2.restore();
+            });
+        },
+    };
+
+    const datasets = [
+        // P90 hidden by default; fill: '+1' still works if later shown
+        {
+            label: 'Total P90',
+            data: r.totP90,
+            hidden: true,
+            borderColor: 'transparent',
+            backgroundColor: 'rgba(59,130,246,0.10)',
+            fill: '+1',
+            pointRadius: 0,
+            tension: 0.3,
+            order: 10,
+        },
+        {
+            label: 'Total P10',
+            data: r.totP10,
+            borderColor: 'rgba(59,130,246,0.25)',
+            backgroundColor: 'rgba(59,130,246,0.10)',
+            borderDash: [3, 3],
+            fill: false,
+            pointRadius: 0,
+            tension: 0.3,
+            order: 10,
+        },
+        {
+            label: 'Total (Median)',
+            data: r.totP50,
+            borderColor: '#3b82f6',
+            borderWidth: 2,
+            fill: false,
+            pointRadius: 0,
+            tension: 0.3,
+            order: 5,
+        },
+        {
+            label: 'Pre-tax',
+            data: r.pretaxP50,
+            borderColor: '#f97316',
+            borderWidth: 1.5,
+            fill: false,
+            pointRadius: 0,
+            tension: 0.3,
+            order: 4,
+        },
+        {
+            label: 'Roth (Total)',
+            data: r.rothP50,
+            borderColor: '#10b981',
+            borderWidth: 1.5,
+            fill: false,
+            pointRadius: 0,
+            tension: 0.3,
+            order: 3,
+        },
+        {
+            label: 'Roth Basis',
+            data: r.basisP50,
+            borderColor: '#6ee7b7',
+            borderDash: [5, 3],
+            borderWidth: 1.5,
+            fill: false,
+            pointRadius: 0,
+            tension: 0.3,
+            order: 2,
+        },
+        {
+            label: 'Taxable',
+            data: r.taxblP50,
+            borderColor: '#a78bfa',
+            borderWidth: 1.5,
+            fill: false,
+            pointRadius: 0,
+            tension: 0.3,
+            order: 1,
+        },
+    ];
+
+    // Scale to visible traces only (P90 excluded by default)
+    const yMax = lockedYMax !== null
+        ? lockedYMax
+        : snapCeiling(initialVisibleMax(datasets));
+
+    chart = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        plugins: [vertPlugin],
+        data: { labels: r.ages, datasets },
+        options: {
+            animation: false,
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                x: {
+                    type: 'linear',
+                    ticks: { color: '#94a3b8', maxTicksLimit: 10 },
+                    grid:  { color: 'rgba(255,255,255,0.04)' },
+                    title: { display: true, text: 'Age', color: '#94a3b8' },
+                },
+                y: {
+                    min: 0,
+                    max: yMax,
+                    ticks: {
+                        color: '#94a3b8',
+                        callback: v =>
+                            v >= 1e6 ? `$${(v/1e6).toFixed(1)}M`
+                          : v >= 1e3 ? `$${(v/1e3).toFixed(0)}k`
+                          : `$${v}`,
+                    },
+                    grid: { color: 'rgba(255,255,255,0.04)' },
+                },
+            },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { color: '#94a3b8', boxWidth: 12, font: { size: 11 } },
+                    // Rescale Y to visible traces on every legend toggle
+                    onClick(e, legendItem, legend) {
+                        const ci  = legend.chart;
+                        const idx = legendItem.datasetIndex;
+                        if (ci.isDatasetVisible(idx)) ci.hide(idx);
+                        else                          ci.show(idx);
+                        if (lockedYMax === null) {
+                            ci.options.scales.y.max = snapCeiling(liveVisibleMax(ci));
+                            ci.update('none');
+                        }
+                    },
+                },
+                tooltip: {
+                    callbacks: {
+                        title: it => `Age ${it[0].label}`,
+                        label: it => `${it.dataset.label}: ${formatCurrency(it.raw)}`,
+                    },
+                },
+            },
+        },
+    });
+}
+
+// ── Full update cycle ─────────────────────────────────────────
+let debounceTimer = null;
+function scheduleUpdate() {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(runUpdate, 60);
+}
+
+function getParams() {
+    const v = id => +document.getElementById(id).value;
+    return {
+        age:         v('bx-age'),
+        life:        v('bx-life'),
+        nwTarget:    v('bx-nwtarget'),
+        spend:       v('bx-spend'),
+        savings:     v('bx-savings'),
+        match:       v('bx-match'),
+        rothPct:     v('bx-rpct'),
+        pretaxBal:   v('bx-pretax'),
+        rothBal:     v('bx-roth'),
+        rothBasisBal:v('bx-rbasis'),
+        taxableBal:  v('bx-taxable'),
+        taxableBasisBal:v('bx-txbasis'),
+        mean:        v('bx-mean'),
+        std:         v('bx-std'),
+    };
+}
+
+function runUpdate() {
+    saveToUrl();
+    const p = getParams();
+    if (p.life <= p.age) return;
+
+    // Clamp: basis can't exceed roth balance
+    const maxBasis = p.rothBal;
+    if (p.rothBasisBal > maxBasis) {
+        document.getElementById('bx-rbasis').value  = maxBasis;
+        document.getElementById('sl-rbasis').value  = maxBasis;
+        document.getElementById('lbl-rbasis').textContent = `Roth Basis (contributions only): ${formatCurrency(maxBasis)}`;
+        p.rothBasisBal = maxBasis;
+    }
+
+    // Clamp: taxable basis can't exceed taxable balance
+    const maxTxBasis = p.taxableBal;
+    if (p.taxableBasisBal > maxTxBasis) {
+        document.getElementById('bx-txbasis').value  = maxTxBasis;
+        document.getElementById('sl-txbasis').value  = maxTxBasis;
+        document.getElementById('lbl-txbasis').textContent = `Taxable Basis (cost basis): ${formatCurrency(maxTxBasis)}`;
+        p.taxableBasisBal = maxTxBasis;
+    }
+
+    // Contribution breakdown
+    updateBreakdown(p.savings, p.match, p.rothPct);
+
+    // Run simulation (retirement age determined stochastically per run)
+    const r  = simulate(p);
+    lastP = p;
+    lastR = r;
+
+    // ── Retirement age metric ─────────────────────────────────
+    const retireEl   = document.getElementById('metric-retire-age');
+    const rangeEl    = document.getElementById('note-retire-range');
+    const medRetire  = r.medRetireAge;
+    retireEl.textContent = medRetire < p.life
+        ? `Age ${medRetire.toFixed(1)}`
+        : `Never`;
+    rangeEl.textContent  = medRetire < p.life
+        ? `P10–P90: ${r.p10RetireAge.toFixed(0)}–${r.p90RetireAge.toFixed(0)}`
+        : '';
+
+    // Show early notice if median retire ≥ 59.5
+    const post595 = medRetire >= AGE_595;
+    document.getElementById('note-post595').style.display = post595 ? 'block' : 'none';
+
+    // ── Other metric cards ────────────────────────────────────
+    document.getElementById('metric-roth-basis').textContent = formatCurrency(r.medBasisAtRetire);
+    document.getElementById('metric-72t').textContent        = formatCurrency(r.med72t);
+
+    // Gap per year note
+    const gapPerYr = Math.max(0, p.spend - r.med72t);
+    const gapNote  = document.getElementById('note-gap');
+    gapNote.textContent = gapPerYr > 0
+        ? `Gap to cover: ${formatCurrency(gapPerYr)}/yr`
+        : `Covers full spending`;
+    gapNote.style.color = gapPerYr > 0 ? '#f59e0b' : '#10b981';
+
+    // Basis bridge note
+    const bridgeYrs = Math.max(0, AGE_595 - medRetire);
+    const basisNote = document.getElementById('note-basis-per-yr');
+    if (bridgeYrs > 0 && gapPerYr > 0) {
+        const needed = gapPerYr * bridgeYrs;
+        basisNote.textContent = `Need ~${formatCurrency(needed)} for ${bridgeYrs.toFixed(1)} yr bridge`;
+        basisNote.style.color = r.medBasisAtRetire >= needed ? '#10b981' : '#ef4444';
+    } else {
+        basisNote.textContent = '';
+    }
+
+    // Early penalty card
+    const penaltyEl  = document.getElementById('metric-penalty');
+    const penaltyPct = document.getElementById('note-penalty-pct');
+    penaltyEl.textContent = formatCurrency(r.medPenalty);
+    penaltyEl.className   = 'metric-value ' + (
+        r.medPenalty === 0  ? 'survival-ok'
+      : r.medPenalty < 5000 ? 'survival-warn'
+      : 'survival-bad'
+    );
+    if (post595) {
+        penaltyPct.textContent = 'Retire after 59½ — no early penalty possible';
+        penaltyPct.style.color = '#10b981';
+    } else {
+        penaltyPct.textContent = r.pctPenalty === 0
+            ? '0% of runs incur penalty'
+            : `${r.pctPenalty.toFixed(0)}% of runs incur penalty`;
+        penaltyPct.style.color = r.pctPenalty === 0 ? '#10b981' : '#f59e0b';
+    }
+
+    // Draw charts
+    buildChart(r, medRetire, p.age, p.life);
+    buildIncomeChart(r, medRetire, p.age, p.life, p.spend);
+}
+
+// ── URL param persistence ─────────────────────────────────────
+// Short keys keep URLs tidy. Order matches getParams() for readability.
+const PARAM_MAP = [
+    ['age',  'bx-age'],
+    ['life', 'bx-life'],
+    ['nwt',  'bx-nwtarget'],
+    ['sp',   'bx-spend'],
+    ['sv',   'bx-savings'],
+    ['m',    'bx-match'],
+    ['rp',   'bx-rpct'],
+    ['mu',   'bx-mean'],
+    ['sd',   'bx-std'],
+    // starting balances (advanced panel)
+    ['pt',   'bx-pretax'],
+    ['ro',   'bx-roth'],
+    ['rb',   'bx-rbasis'],
+    ['tx',   'bx-taxable'],
+    ['tb',   'bx-txbasis'],
+];
+
+function saveToUrl() {
+    const p = new URLSearchParams();
+    PARAM_MAP.forEach(([key, id]) => p.set(key, document.getElementById(id).value));
+    history.replaceState(null, '', '?' + p.toString());
+}
+
+function loadFromUrl() {
+    const p = new URLSearchParams(window.location.search);
+    if (!p.size) return;
+    PARAM_MAP.forEach(([key, id]) => {
+        if (!p.has(key)) return;
+        const bx = document.getElementById(id);
+        bx.value = p.get(key);
+        // Sync paired slider (id pattern: bx-foo → sl-foo)
+        const sl = document.getElementById(id.replace('bx-', 'sl-'));
+        if (sl) sl.value = p.get(key);
+    });
+    // Trigger all label formatters by firing one synthetic input on each box.
+    // wire() listeners will update labels + call scheduleUpdate (debounced → 1 run).
+    PARAM_MAP.forEach(([, id]) => {
+        document.getElementById(id).dispatchEvent(new Event('input'));
+    });
+}
+
+// ── Slider / box sync ─────────────────────────────────────────
+function wire(slId, bxId, lblId, fmt) {
+    const sl  = document.getElementById(slId);
+    const bx  = document.getElementById(bxId);
+    const lbl = lblId ? document.getElementById(lblId) : null;
+
+    const sync = (src, dst) => () => {
+        dst.value = src.value;
+        if (lbl && fmt) lbl.textContent = fmt(+src.value);
+        scheduleUpdate();
+    };
+
+    sl.addEventListener('input',  sync(sl, bx));
+    bx.addEventListener('input',  sync(bx, sl));
+    bx.addEventListener('change', sync(bx, sl));
+}
+
+// ── Init ─────────────────────────────────────────────────────
+function init() {
+    wire('sl-age',      'bx-age',      null,            null);
+    wire('sl-life',     'bx-life',     null,            null);
+    wire('sl-nwtarget', 'bx-nwtarget', 'lbl-nwtarget',  v => `Retire at Net Worth: ${formatCurrency(v)}`);
+    wire('sl-spend',    'bx-spend',    'lbl-spend',     v => `Annual Retirement Spending: ${formatCurrency(v)}`);
+    wire('sl-savings', 'bx-savings', 'lbl-savings',v => `Total Annual Savings: ${formatCurrency(v)}`);
+    wire('sl-match',   'bx-match',   'lbl-match',  v => `Employer Match (→ Pre-tax 401k): ${formatCurrency(v)}`);
+    wire('sl-rpct',    'bx-rpct',    'lbl-rpct',   v => `Employee Contributions → Roth: ${v}%`);
+    wire('sl-mean',    'bx-mean',    'lbl-mean',   v => `Mean Real Growth Rate: ${(+v).toFixed(1)}%`);
+    wire('sl-std',     'bx-std',     'lbl-std',    v => `Growth Std Dev: ${(+v).toFixed(1)}%`);
+    wire('sl-pretax',  'bx-pretax',  'lbl-pretax', v => `Pre-tax Balance (401k / IRA): ${formatCurrency(v)}`);
+    wire('sl-roth',    'bx-roth',    'lbl-roth',   v => `Roth Balance (401k + IRA): ${formatCurrency(v)}`);
+    wire('sl-rbasis',  'bx-rbasis',  'lbl-rbasis', v => `Roth Basis (contributions only): ${formatCurrency(v)}`);
+    wire('sl-taxable', 'bx-taxable', 'lbl-taxable',v => `Taxable Balance: ${formatCurrency(v)}`);
+    wire('sl-txbasis', 'bx-txbasis', 'lbl-txbasis',v => `Taxable Basis (cost basis): ${formatCurrency(v)}`);
+
+    // Restore state from URL (must run after wire() so listeners are attached)
+    loadFromUrl();
+
+    // Advanced panel toggle
+    document.getElementById('adv-btn').addEventListener('click', () => {
+        const panel = document.getElementById('adv-panel');
+        const open  = panel.style.display === 'block';
+        panel.style.display = open ? 'none' : 'block';
+        document.getElementById('adv-btn').classList.toggle('open', !open);
+    });
+
+    // Lock chart scale — locks/unlocks to currently-visible traces
+    document.getElementById('btn-lock-scale').addEventListener('click', () => {
+        const btn = document.getElementById('btn-lock-scale');
+        if (lockedYMax !== null) {
+            // Unlock: revert to auto-scale of visible traces
+            lockedYMax = null;
+            btn.textContent = 'Lock Scale';
+            btn.classList.remove('locked');
+            if (chart) {
+                chart.options.scales.y.max = snapCeiling(liveVisibleMax(chart));
+                chart.update('none');
+            }
+        } else if (chart) {
+            // Lock to whatever is currently visible
+            lockedYMax = snapCeiling(liveVisibleMax(chart));
+            btn.textContent = 'Unlock Scale';
+            btn.classList.add('locked');
+            // No chart update needed — max is already correct
+        }
+    });
+
+    runUpdate();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+
+<footer class="site-footer">
+    Money Plot Labs · <a href="https://docs.google.com/forms/d/e/1FAIpQLSdMDJYC1tLzpVimhVExzzZspFVAxCYKDUOZnlokIErD3mrQsw/viewform?usp=pp_url&entry.2075267935=Roth+Optimizer" target="_blank" rel="noopener noreferrer">Send feedback</a>
+</footer>
+</body>
+</html>
