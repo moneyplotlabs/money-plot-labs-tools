@@ -1,0 +1,303 @@
+\documentclass[11pt,letterpaper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multicol} % REQUIRED: For a tight, space-saving parameter grid
+\usepackage{wrapfig}
+\usepackage{caption}
+\usepackage{float} 
+\usepackage{graphicx}
+\graphicspath{{visual-assets/}} % Looks in the relative images folder
+
+% Brand Typography / Color configuration
+\definecolor{mpdark}{HTML}{0F172A}
+\definecolor{mpblue}{HTML}{3B82F6}
+\definecolor{mpgreen}{HTML}{10B981}
+\definecolor{mpred}{HTML}{EF4444}
+\definecolor{mppurple}{HTML}{8B5CF6}
+\definecolor{mpbrown}{HTML}{A52A2A}
+
+% Clean, modern margins
+\geometry{margin=1in}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=mpblue,
+    urlcolor=mpblue
+}
+
+% --- SQUEEZE MECHANISM 1: Reduce math equation vertical white-space padding ---
+\setlength{\abovedisplayskip}{4pt}
+\setlength{\belowdisplayskip}{4pt}
+\setlength{\abovedisplayshortskip}{2pt}
+\setlength{\belowdisplayshortskip}{2pt}
+
+\title{\vspace{-20pt}\textbf{\color{mpdark}Money Plot Labs Technical Whitepaper \\ The Pure Math of Financial Freedom}}
+\author{\textbf{Money Plot Labs}}
+\date{June 2026}
+
+\begin{document}
+
+\maketitle
+
+% --- SQUEEZE MECHANISM 2: Tight abstract spacing ---
+\begin{abstract}
+\vspace{-5pt}
+This whitepaper derives the closed-form analytical solution for a fixed-horizon retirement timeline. We present a simple linear model first to establish a transparent baseline using basic algebra. We then expand this model into exponential growth curves of an accumulation and decumulation phase. This isolates the exact number of required working years ($w$) as a function of savings rate, initial capital, investment growth, and desired legacy floors.
+\end{abstract}
+
+\section{Introduction \& Horizon Framework}
+Standard personal finance paradigms frequently rely on generalized heuristics and rules of thumb. While these baseline approximations offer valuable practical guidance, they often lack the multi-variable flexibility required to model specific, customized boundary conditions. To analyze these variables systematically, we establish a deterministic lifecycle framework. We define the total planning horizon ($H$) spanning from an initial evaluation age ($T_{\text{start}}$) to a maximum life expectancy threshold ($T_{\text{end}}$) as:
+\begin{equation}
+H = T_{\text{end}} - T_{\text{start}}
+\end{equation}
+
+Within this horizon $H$, an individual works for $w$ consecutive years and spends the remaining $f$ years in full retirement, such that:
+\begin{equation}
+H = w + f
+\end{equation}
+
+\subsection{Parameter Definitions}
+% --- SQUEEZE MECHANISM 3: Two-column tight item list to dramatically save vertical space ---
+\begin{multicols}{2}
+\begin{itemize}
+    \setlength{\itemsep}{1pt}
+    \setlength{\parskip}{0pt}
+    \setlength{\parsep}{0pt}
+    \item \textcolor{mpbrown}{$I$}: Annual Earned Income (\textcolor{mpbrown}{$I$} = \textcolor{mpgreen}{$s$} + \textcolor{mpred}{$c$}) (\$)
+    \item \textcolor{mpgreen}{$s$}: Annual Savings Flow (\$)
+    \item \textcolor{mpred}{$c$}: Annual Consumption Outflow (\$)
+    \item \textcolor{mppurple}{$r$}: Inflation-Adjusted Real Growth Rate
+    \item \textcolor{mpblue}{$A_0$}: Initial Net Worth Starting Balance (\$)
+    \item{\textcolor{mpgreen}{$w$}: Accumulation Horizon (Working Years)
+    \item \textcolor{mpred}{$f$}: Decumulation Horizon (Freedom Years)
+    \item \textcolor{mpdark}{$L$}: Desired Legacy Floor Target (\$)
+\end{itemize}
+\end{multicols}
+
+\subsection{A Note on Purchasing Power and Monetary Units}
+To preserve absolute analytical clarity across a multi-decade planning horizon, all currency vectors within this framework are evaluated strictly in \textbf{Real Terms (Today's Dollars)}. By adjusting our cash flow velocities ($s, c$) and investment yields ($r$) for inflation from Day 1, we isolate changes in true purchasing power. This completely removes nominal monetary noise from the geometry, ensuring that a flat retirement consumption line reflects a perfectly stable, un-degraded standard of living from the initial starting age to the terminal horizon milestone.
+
+\vfill
+\centerline{\color{gray!40}\rule{0.5\textwidth}{0.5pt}}
+\vfill
+
+\pagebreak % FORCES SECTION 2 CASE 1 TO START CRISPLY AT THE TOP OF PAGE 2
+
+\section{The Linear Baseline Case ($r = 0\%$)}
+Before introducing the compounding curves of financial markets, we establish intuitive baselines by assuming real asset growth perfectly tracks inflation ($r = 0\%$). In this environment, wealth accumulates and depletes along perfectly straight lines, making it easy to isolate how system parameters structurally shift timeline horizons.
+
+\subsection{Case 1: The Idealized Zero-Baseline Framework ($A_0 = 0, L = 0$)}
+\begin{wrapfigure}{r}{0.5\textwidth} % {r} for left, {0.5\textwidth} for half width
+    \includegraphics[width=\linewidth]{linear_plot.pdf}
+    \captionsetup{textfont=small}
+    \caption{The straight-line boundary crossover mapping where $r =0\%$. Assets accumulate smoothly via \textcolor{mpgreen}{savings} and deplete symmetrically via \textcolor{mpred}{consumption} until hitting the legacy boundary.}
+    \vspace{1em}
+\end{wrapfigure}
+
+We begin with a simplified world containing a zero starting balance ($A_0 = 0$) and no terminal inheritance target ($L = 0$). 
+
+During the working phase, assets grow linearly via cash savings flow ${\color{mpgreen}s}$ injected at the end of each period for $w$ years:
+\begin{equation}
+\text{Peak Assets Case 1} = {\textcolor{mpgreen}s} \cdot w
+\end{equation}
+
+Upon entering retirement, accumulation stops decumulation begins draining our peak nest egg by a flat annual consumption $\textcolor{mpred}{c}$ for the remaining $f$ retirement years:
+\begin{equation}
+\text{Peak Assets Required Case 1} = {\textcolor{mpred}c} \cdot f
+\end{equation}
+
+To locate the precise intersection boundary where working ends and retirement begins, we enforce our system constraint where the peak accumulated capital must exactly equal the total retirement drawdown:
+\begin{equation}
+{\textcolor{mpgreen}s} \cdot w = {\textcolor{mpred}c} \cdot f
+\end{equation}
+
+Substituting our timeline identity $f = H - w$ allows us to solve for $w$:
+\begin{equation}
+{\textcolor{mpgreen}s} \cdot w = \textcolor{mpred}{c} \cdot (H - w)
+\end{equation}
+
+Grouping terms containing our target variable $w$ onto the left-hand side and factoring yields:
+\begin{equation}
+w({\textcolor{mpgreen}s} + \textcolor{mpred}{c}) = \textcolor{mpred}{c} \cdot H
+\end{equation}
+
+Dividing through isolates our fundamental idealized baseline relationship:
+\begin{equation}
+w = \frac{\textcolor{mpred}{c} \cdot H}{\textcolor{mpgreen}s + \textcolor{mpred}{c}} =\frac{\textcolor{mpred}{c} \cdot H}{\textcolor{mpbrown}{I}}
+\end{equation}
+In the example in Figure 1, a person saving 25\% of their income: $\textcolor{mpbrown}{I} = \$60,000\text{/year}$, $\textcolor{mpred}{c} = \$45,000\text{/year}$, ${\textcolor{mpgreen}s} = \$15,000\text{/year}$, 
+$T_{start} = \text{25 years}$, $T_{end} = \text{95 years}$:
+\begin{align*}
+    w &= \frac{\textcolor{mpred}{\$45,000} \cdot 70 \text{ years}}{\textcolor{mpbrown}{\$60,000}}\\
+    w &= 52.5 \text{ years}
+\end{align*}
+Another way to look at it is that the total area of the \textcolor{mpred}{consumption} bar chart should equal the area under the \textcolor{mpbrown}{earned income} line. 
+\begin{equation}
+{\color{mpbrown}I} * w = \textcolor{mpred}{c} * H
+\end{equation}
+Equivalently, the  area of the \textcolor{mpgreen}{savings} bars is equal to the post retirement \textcolor{mpred}{consumption} bars.
+
+\subsection{Case 2: The Parameterized Linear Solution with Boundary Modifiers ($A_0 \neq 0, L \neq 0$)}
+We now expand our straight-line environment to account for real-world initial endowments and estate conservation goals. We reintroduce the asset head-start parameter ($A_0$) and the designated capital legacy floor ($L$). 
+
+Incorporating these conditions alters our primary boundary accumulation and decumulation states:
+\begin{equation}
+\text{Peak Assets Case 2} = A_0 + s \cdot w
+\end{equation}
+\begin{equation}
+\text{Peak Assets Required Case 2} = L + c \cdot f
+\end{equation}
+
+Setting our parameterized accumulation trajectory equal to the absolute terminal requirement forces the system boundary equation:
+\begin{equation}
+A_0 + s \cdot w = L + c \cdot f
+\end{equation}
+
+Substituting our timeline identity $f=H-w$ and isolating our targeted timeline variables onto the left-hand side of the identity yields:
+\begin{equation}
+s \cdot w + c \cdot w = c \cdot H + L - A_0
+\end{equation}
+
+Factoring out $w$ collects our parameters into clean operational dimensions:
+\begin{equation}
+w(s + c) = c \cdot H + L - A_0
+\end{equation}
+
+Dividing through by our total structural velocity $(s + c)$ delivers the complete \textbf{Parameterized Linear Equation}:
+\begin{equation}
+w = \frac{c \cdot H + L - A_0}{s + c}
+\end{equation}
+
+This intermediate step clearly demonstrates the pure algebraic translation of our boundary mechanics: an initial balance ($A_0$) directly subtracts from required working years, while a desired legacy floor ($L$) extends the required labor timeline.
+
+---
+
+\section{Phase 1: The Exponential Accumulation Engine}
+When we introduce real market investment returns ($r > 0\%$), our straight lines transform into curves. During the working phase ($w$), net worth grows via compound interest on the initial principal while absorbing an ordinary annuity flow of annual savings $c$ injected at the end of each period. The net worth at the exact boundary of retirement ($A_w$) is defined by:
+\begin{equation}
+{\color{mpgreen} A_w} = A_0(1+r)^w + s \cdot \frac{(1+r)^w - 1}{r}
+\end{equation}
+
+\subsection{Step-by-Step Inductive Derivation of $A_w$}
+To understand the structural origin of the accumulation equation, we trace the boundary state changes sequentially at the close of each annual compounding cycle:
+\begin{align*}
+    A_1 &= A_0(1+r) + s \\
+    A_2 &= A_1(1+r) + s = \left[A_0(1+r) + s\right](1+r) + s \\
+        &= A_0(1+r)^2 + s(1+r) + s \\
+    A_3 &= A_2(1+r) + s = \left[A_0(1+r)^2 + s(1+r) + s\right](1+r) + s \\
+        &= A_0(1+r)^3 + s(1+r)^2 + s(1+r) + s
+\end{align*}
+
+Extending this inductive sequence to a generalized working timeline of $w$ years yields:
+\begin{equation}
+    {\color{mpgreen} A_w} = A_0(1+r)^w + s \sum_{k=0}^{w-1} (1+r)^k
+\end{equation}
+
+The summation block represents a classic geometric progression. Applying the standard Geometric Series Summation Theorem where the common ratio is $(1+r)$, the series condenses analytically:
+\begin{equation}
+    \sum_{k=0}^{w-1} (1+r)^k = \frac{(1+r)^w - 1}{(1+r) - 1} = \frac{(1+r)^w - 1}{r}
+\end{equation}
+
+Substituting Equation 18 back into Equation 17 yields our verified final accumulation master expression matching Equation 16.
+
+---
+
+\section{Phase 2: The Exponential decumulation Engine}
+Upon entering retirement, the cash flow behavior flips. To match real-world physical constraints, living expenses must be accessible at the \textit{beginning} of each calendar year. Therefore, retirement spending is modeled strictly as an \textbf{Annuity Due}. 
+\begin{equation}
+    {\color{mpdark} R_f} = {\color{mpgreen} A_w} {\color{mpred}(1+r)^f} - {\color{mpred}c \cdot \frac{(1+r)^{f+1} - (1+r)}{r}}
+\end{equation}
+
+\subsection{Step-by-Step Inductive Derivation of the decumulation Phase}
+We trace the remaining capital balance $R$ at the close of each retirement year sequentially, demonstrating why the timing mismatch injects an extra factor of $(1+r)$ compared to an ordinary annuity:
+\begin{align*}
+    R_1 &= ({\color{mpgreen} A_w} - c)(1+r) = {\color{mpgreen} A_w}(1+r) - c(1+r) \\
+    R_2 &= (R_1 - c)(1+r) = \left[{\color{mpgreen} A_w}(1+r) - c(1+r) - c\right](1+r) \\
+        &= {\color{mpgreen} A_w}(1+r)^2 - c(1+r)^2 - c(1+r) \\
+    R_3 &= (R_2 - c)(1+r) = \left[{\color{mpgreen} A_w}(1+r)^2 - c(1+r)^2 - c(1+r) - c\right](1+r) \\
+        &= {\color{mpgreen} A_w}(1+r)^3 - c(1+r)^3 - c(1+r)^2 - c(1+r)
+\end{align*}
+
+Extending this progression to a total retirement duration of $f$ years yields:
+\begin{equation}
+    R_f = {\color{mpgreen} A_w}(1+r)^f - c \sum_{k=1}^{f} (1+r)^k
+\end{equation}
+
+Factoring out a common term of $(1+r)$ isolates a standard geometric progression inside the summation block:
+\begin{equation}
+    \sum_{k=1}^{f} (1+r)^k = (1+r) \sum_{k=0}^{f-1} (1+r)^k = (1+r) \cdot \frac{(1+r)^f - 1}{r}
+\end{equation}
+
+Distributing the factored $(1+r)$ back across the numerator yields the completed, time-synchronized decumulation engine expression matching Equation 19.
+
+---
+
+\section{The Unified Derivation with Legacy Capital Floors}
+To complete our global solution, we enforce our final boundary constraint where our asset base at the end of life must exactly match our legacy target ($R_f = L$). By substituting our timeline identity $f = H - w$, we can map our accumulation peak directly into our decumulation model.
+
+\subsection{The Color-Coded Substitution}
+We inject the accumulation boundary definition (Equation 16) directly into our synchronized decumulation phase expression (Equation 19), creating a unified timeline equation:
+\begin{equation}
+\left[ {\color{mpgreen} A_0(1+r)^w + s \cdot \frac{(1+r)^w - 1}{r}} \right] {\color{mpred}(1+r)^{H-w}} - {\color{mpred}c \cdot \frac{(1+r)^{H-w+1} - (1+r)}{r}} = {\color{mpdark}L}
+\end{equation}
+
+\subsection{The Algebraic Isolation}
+Distributing the central exponential term ${\color{mpred}(1+r)^{H-w}}$ across our accumulation bracket allows the localized $w$ variables to elegantly combine and drop out of the leading terms:
+\begin{equation}
+A_0(1+r)^H + \frac{s}{r}(1+r)^H - \frac{s}{r}(1+r)^{H-w} - c \cdot \frac{(1+r)^{H-w+1} - (1+r)}{r} = L
+\end{equation}
+
+Multiplying the entire equation by our common denominator $r$ removes fractional complexity:
+\begin{equation}
+rA_0(1+r)^H + s(1+r)^H - s(1+r)^{H-w} - c(1+r)^{H-w+1} + c(1+r) = rL
+\end{equation}
+
+Grouping the terms containing our targeted timeline variable $w$ onto the right-hand side, and moving our legacy parameter to the left-hand side:
+\begin{equation}
+(1+r)^H \left( rA_0 + s \right) + c(1+r) - rL = \left[ s + c(1+r) \right] (1+r)^{H-w}
+\end{equation}
+
+Isolating our exponential timeline block completely:
+\begin{equation}
+(1+r)^{H-w} = \frac{(rA_0 + s)(1+r)^H + c(1+r) - rL}{s + c(1+r)}
+\end{equation}
+
+Taking the natural logarithm ($\ln$) of both sides frees our timeline variable from the exponent:
+\begin{equation}
+(H - w) \ln(1+r) = \ln \left[ \frac{(rA_0 + s)(1+r)^H + c(1+r) - rL}{s + c(1+r)} \right]
+\end{equation}
+
+Isolating $w$ yields the final closed-form analytical solution for the required working timeline:
+\begin{equation}
+w = H - \frac{\ln \left[ \frac{(rA_0 + s)(1+r)^H + c(1+r) - rL}{s + c(1+r)} \right]}{\ln(1+r)}
+\end{equation}
+
+Observe that evaluating the limit of Equation 28 as $r \to 0$ collapses perfectly into our baseline parameterized linear case derived in Equation 15, confirming absolute mathematical symmetry across all domains.
+
+% =========================================================================
+% SECTION: PLOT 2 (EXPONENTIAL COMPOUNDING TRAJECTORY)
+% =========================================================================
+\begin{figure}[H]
+\centering
+\includegraphics[width=12cm, height=6cm]{exponential_plot.pdf}
+\caption{The exponential compounding lifecycle curves where $r>0\%$. The \textcolor{mpgreen}{accumulation phase} curves upward via geometric expansion and transitions to an accelerated annuity-due \textcolor{mpred}{decumulation} phase. The total area of the \textcolor{mpred}{consumption} bar chart should equal the area under the \textcolor{mpbrown}{earned income} line + the total area under the \textcolor{mppurple}{earned income}. The  area of the \textcolor{mpgreen}{savings} bar chart is equal to the post retirement \textcolor{mpred}{consumption} bar chart.}
+\label{fig:exponential_plot}
+\end{figure}
+
+% =========================================================================
+% SECTION: PLOT 3 (COMPARISON TRAJECTORY)
+% =========================================================================
+\begin{figure}[H]
+\centering
+\includegraphics[width=12cm, height=6cm]{comparison_plot.pdf}
+\caption{The exponential compounding curve compared to both assets just keeping with inflation and assets losing to inflation.}
+\label{fig:comparison_plot}
+\end{figure}
+
+\end{document}

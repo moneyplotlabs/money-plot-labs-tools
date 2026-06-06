@@ -1,0 +1,23 @@
+{
+  "name": "retirement-timeline-simplified",
+  "version": "1.0.0",
+  "description": "Money Plot Labs — interactive retirement-timeline modeling tools (Macro Sandbox, Cash Flow Planner, Stress Tester).",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test",
+    "test:watch": "node --test --watch",
+    "test:coverage": "node --test --experimental-test-coverage",
+    "serve": "python3 -m http.server 8000"
+  },
+  "keywords": [
+    "retirement",
+    "monte-carlo",
+    "financial-independence",
+    "simulation"
+  ],
+  "license": "SEE LICENSE IN LICENSE",
+  "engines": {
+    "node": ">=20"
+  }
+}

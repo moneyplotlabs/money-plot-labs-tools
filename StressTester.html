@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Money Plot Labs - Retirement Stress Tester</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="container">
+    <h2>Money Plot Labs: Retirement Stress Tester</h2>
+
+    <div class="metrics-grid">
+        <div class="metric-card">
+            <div id="metric-work-years-label" class="metric-label">Working Years</div>
+            <div id="metric-work-years" class="metric-value">0.0 Years</div>
+        </div>
+        <div class="metric-card blue">
+            <div id="metric-retire-age-label" class="metric-label">Retirement Age</div>
+            <div id="metric-retire-age" class="metric-value">Age --</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Success Rate</div>
+            <div id="metric-success-rate" class="metric-value">0%</div>
+        </div>
+    </div>
+
+    <div class="layout-split">
+
+        <!-- Chart -->
+        <div>
+            <div class="chart-header">
+                <span class="chart-label">Net Worth Percentile Fan + Median Cash Flow</span>
+                <button class="btn-lock btn-lock-chart" id="main-chart-lock">Lock Scale for Comparison</button>
+            </div>
+            <div class="chart-container">
+                <canvas id="lifepathChart"></canvas>
+                <div id="chart-loader" class="chart-loader">
+                    <span class="placeholder-text">Chart initialization pending engine logic...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+
+            <div class="control-group">
+                <label class="control-label">Current Age</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-start-age" min="0" max="100" value="30">
+                    <input type="number" id="box-start-age"    class="manual-box" min="0" max="100" value="30">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Life Expectancy</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-end-age" min="0" max="120" value="95">
+                    <input type="number" id="box-end-age"    class="manual-box" min="0" max="120" value="95">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Retirement Trigger</label>
+                <div class="interactive-row" style="gap:6px;">
+                    <button id="retire-mode-age" class="btn-lock locked" style="flex:1;">Retire at Age</button>
+                    <button id="retire-mode-nw"  class="btn-lock"        style="flex:1;">Retire at Net Worth</button>
+                </div>
+            </div>
+
+            <!-- Age-based retirement (default visible) -->
+            <div id="retire-age-group" class="control-group">
+                <label class="control-label">Retirement Age</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-retire-age" min="0" max="100" value="65">
+                    <input type="number" id="box-retire-age"    class="manual-box" min="0" max="100" value="65">
+                </div>
+            </div>
+
+            <!-- NW-based retirement (hidden by default, shown by applyRetireMode) -->
+            <div id="retire-nw-group" class="control-group">
+                <label class="control-label" id="label-retire-nw">Retire at Net Worth: $1,000,000</label>
+                <div class="interactive-row">
+                    <input type="range"  id="input-retire-nw" min="0" max="5000000" step="50000" value="1000000">
+                    <input type="number" id="box-retire-nw"   class="manual-box" min="0" step="50000" value="1000000" placeholder="$">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label" id="label-principal">Starting Balance: $0</label>
+                <div class="interactive-row">
+                    <input type="range"  id="input-principal" min="0" max="1000000" step="10000" value="0">
+                    <input type="number" id="box-principal"   class="manual-box" min="0" step="1000" value="0" placeholder="$">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Accumulation Growth Method</label>
+                <select id="select-growth-method-acc">
+                    <option value="60-40" selected>60/40 Stocks/Bonds — real μ 5.9%, σ 12.5%</option>
+                    <option value="equities">US Equities (S&amp;P 500) — real μ 8.8%, σ 19.6%</option>
+                    <option value="cohort-6040">60/40 Chronological (1928–2024)</option>
+                    <option value="cohort-equities">US Equities Chronological (1928–2024)</option>
+                    <option value="manual">Manual — Mean &amp; Standard Deviation</option>
+                </select>
+                <div id="manual-inputs-acc" class="manual-inputs-grid">
+                    <div class="control-group">
+                        <label class="control-label control-label-sm">Mean %</label>
+                        <input type="number" id="box-growth-mean-acc" value="5.0" step="0.1">
+                    </div>
+                    <div class="control-group">
+                        <label class="control-label control-label-sm">Std Dev %</label>
+                        <input type="number" id="box-growth-std-acc" value="10.0" step="0.1">
+                    </div>
+                </div>
+            </div>
+
+            <div class="advanced-toggle" id="advanced-button">
+                <span>More Parameters</span>
+                <svg class="chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+
+            <div class="advanced-content" id="advanced-panel">
+
+                <!-- Decumulation Growth Method -->
+                <div class="control-group">
+                    <div class="section-header">
+                        <label class="control-label">Decumulation Growth Method</label>
+                        <button class="btn-lock btn-lock-sm" id="btn-link-rates">Link to Accumulation</button>
+                    </div>
+                    <select id="select-growth-method-dec">
+                        <option value="60-40" selected>60/40 Stocks/Bonds — real μ 5.9%, σ 12.5%</option>
+                        <option value="equities">US Equities (S&amp;P 500) — real μ 8.8%, σ 19.6%</option>
+                        <option value="cohort-6040">60/40 Chronological (1928–2024)</option>
+                        <option value="cohort-equities">US Equities Chronological (1928–2024)</option>
+                        <option value="manual">Manual — Mean &amp; Standard Deviation</option>
+                    </select>
+                    <div id="manual-inputs-dec" class="manual-inputs-grid">
+                        <div class="control-group">
+                            <label class="control-label control-label-sm">Mean %</label>
+                            <input type="number" id="box-growth-mean-dec" value="5.0" step="0.1">
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label control-label-sm">Std Dev %</label>
+                            <input type="number" id="box-growth-std-dec" value="10.0" step="0.1">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Legacy Floor -->
+                <div class="control-group">
+                    <label class="control-label" id="label-legacy-floor">Desired Legacy Floor: $0</label>
+                    <div class="interactive-row">
+                        <input type="range"  id="slider-legacy-floor" min="0" max="1000000" step="50000" value="0">
+                        <input type="number" id="box-legacy-floor"    class="manual-box" min="0" max="5000000" step="50000" value="0" placeholder="$">
+                    </div>
+                </div>
+
+                <!-- Chart X-Axis Bounds -->
+                <div class="advanced-row-x">
+                    <div class="x-input-pair">
+                        <div class="control-group">
+                            <label class="control-label">Chart Min Age</label>
+                            <input type="number" id="box-axis-min" min="0" max="100" value="" placeholder="Auto">
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label">Chart Max Age</label>
+                            <input type="number" id="box-axis-max" min="30" max="150" value="" placeholder="Auto">
+                        </div>
+                    </div>
+                </div>
+                <button class="btn-lock btn-lock-full" id="btn-lock-x">Lock Current X</button>
+
+                <!-- Chart Y-Axis (Net Worth) -->
+                <div class="control-group">
+                    <label class="control-label">Chart Max Net Worth ($)</label>
+                    <input type="number" id="box-y-max" step="100000" min="0" value="" placeholder="Auto (Peak Net Worth)">
+                </div>
+                <button class="btn-lock btn-lock-full" id="btn-lock-y">Lock Current Y</button>
+
+                <!-- Chart Left Y-Axis (Cash Flow) -->
+                <div class="advanced-row-y">
+                    <div class="x-input-pair">
+                        <div class="control-group">
+                            <label class="control-label">Chart Min Flow ($)</label>
+                            <input type="number" id="box-y-left-min" step="5000" value="" placeholder="Auto">
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label">Chart Max Flow ($)</label>
+                            <input type="number" id="box-y-left-max" step="10000" value="" placeholder="Auto">
+                        </div>
+                    </div>
+                </div>
+                <button class="btn-lock btn-lock-full" id="btn-lock-y-left">Lock Current Left Y</button>
+
+                <!-- Social Security / Pensions -->
+                <div class="section-divider">
+                    <div class="section-header">
+                        <label class="control-label">Social Security / Pensions</label>
+                        <button class="btn-lock btn-lock-sm" id="btn-add-ss">+ Add</button>
+                    </div>
+                    <div id="ss-list" class="event-list"></div>
+                </div>
+
+                <!-- Windfalls -->
+                <div class="section-divider">
+                    <div class="section-header">
+                        <label class="control-label">One-time Windfalls</label>
+                        <button class="btn-lock btn-lock-sm" id="btn-add-windfall">+ Add</button>
+                    </div>
+                    <div id="windfall-list" class="event-list"></div>
+                </div>
+
+            </div><!-- /advanced-panel -->
+
+            <div id="milestone-container" class="milestone-list"></div>
+            <button id="add-event-btn" class="btn-add-event">+ Add Life Event (Milestone)</button>
+
+        </div><!-- /controls -->
+    </div><!-- /layout-split -->
+
+    <div class="doc-footer">
+        <div class="doc-notes">
+            <p>
+                <strong>Methodology:</strong> Two simulation modes are available.
+                <strong>Bootstrap resampling</strong> (60/40, Equities, Manual): runs 1,000 Monte Carlo
+                iterations sampling returns randomly with replacement.
+                <strong>Chronological cohort</strong>: walks every valid overlapping window through the
+                actual 1928–2024 return sequence — e.g. a 40-year horizon yields 58 cohorts (1928–1967,
+                1929–1968, … 1985–2024). If both phases use a chronological method (or are linked), the
+                full planning horizon must fit within 97 years; if only one phase is chronological, only
+                that phase's length is constrained. Horizons exceeding 97 years show a warning.
+                <strong>Note:</strong> Cohort success rates are not directly comparable to bootstrap success rates.
+                Over long horizons, all cohort windows have similar CAGRs (e.g. 4.6–5.9% for 60/40 over 67 years)
+                because sequence variance averages out. Bootstrap can draw pathological sequences that never
+                occurred in real history, producing wider variance and lower success rates. Both are valid
+                but measure different things: cohort = "did any real historical investor fail?";
+                bootstrap = "stress-testing against synthetic extremes."
+                The net worth chart displays a <strong>percentile fan</strong>: p10/p25 as dashed lines,
+                p50 as the solid median, plus the single actual run closest to the p10 terminal outcome
+                (orange) whose growth sequence also drives the cash flow bars.
+                Success rate = share of runs ending above the legacy floor.
+            </p>
+            <p>
+                <strong>Data Attribution:</strong> All historical return series cover <strong>1928–2024 (97 years)</strong>
+                and are expressed as <strong>real (inflation-adjusted) annual returns</strong>.
+            </p>
+            <p>
+                <strong>US Equities (S&amp;P 500)</strong> — nominal total returns (price + dividends) sourced from
+                <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histretSP.html" target="_blank" class="link-accent">Aswath Damodaran, NYU Stern</a>.
+                CPI deflation applied using U.S. Bureau of Labor Statistics data via
+                <a href="https://www.bls.gov/cpi/" target="_blank" class="link-accent">BLS</a> /
+                <a href="https://shillerdata.com" target="_blank" class="link-accent">Robert Shiller</a>.
+                Real arithmetic mean <strong>8.8%</strong>, std dev <strong>19.6%</strong>, geometric CAGR <strong>6.9%</strong>.
+            </p>
+            <p>
+                <strong>60/40 Portfolio</strong> (60% S&amp;P 500 + 40% 10-Year US Treasury Bond) — bond total returns
+                (coupon + price appreciation) from
+                <a href="https://fred.stlouisfed.org" target="_blank" class="link-accent">FRED, St. Louis Fed</a>
+                as compiled by Damodaran; blended and deflated by CPI.
+                Real arithmetic mean <strong>5.9%</strong>, std dev <strong>12.5%</strong>, geometric CAGR <strong>5.1%</strong>.
+            </p>
+        </div>
+        <div class="doc-links">
+            <a href="./docs/003-stochastic-retirement-framework.pdf" target="_blank" class="btn-doc">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                Stochastic Framework Whitepaper (PDF)
+            </a>
+            <a href="./docs/001-the-pure-math-of-financial-freedom.pdf" target="_blank" class="btn-doc">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                Pure Math Derivations (PDF)
+            </a>
+        </div>
+    </div>
+
+    <nav class="tools-nav">
+        <a href="index.html" class="nav-item" title="Static, Closed-form calculus">
+            1. Macro Sandbox
+            <span>High-level Engine</span>
+        </a>
+        <a href="LifepathCashFlowSimulator.html" class="nav-item" title="Static, Year-by-year lookup">
+            2. Cash Flow Planner
+            <span>Variable Yearly Flow</span>
+        </a>
+        <a href="#" class="nav-item active" title="Stochastic, Lifepath engine">
+            3. Stress Tester
+            <span>Lifepath Volatility</span>
+        </a>
+        <a href="HSATransfer.html" class="nav-item" title="HSA transfer-fee optimization">
+            4. HSA Transfer
+            <span>Fee Optimization</span>
+        </a>
+    </nav>
+
+</div><!-- /container -->
+
+<script src="common.js"></script>
+<script src="engine.js"></script>
+<script src="stresstester.js"></script>
+<footer class="site-footer">
+    Money Plot Labs · <a href="https://docs.google.com/forms/d/e/1FAIpQLSdMDJYC1tLzpVimhVExzzZspFVAxCYKDUOZnlokIErD3mrQsw/viewform?usp=pp_url&amp;entry.2075267935=Stress+Tester" target="_blank" rel="noopener noreferrer">Send feedback</a>
+</footer>
+</body>
+</html>

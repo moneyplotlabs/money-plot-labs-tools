@@ -1,0 +1,88 @@
+\documentclass[11pt,letterpaper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\definecolor{mpdark}{HTML}{0F172A}
+\definecolor{mpblue}{HTML}{3B82F6}
+\definecolor{mpgreen}{HTML}{10B981}
+
+\geometry{margin=1in}
+
+\title{\vspace{-20pt}\textbf{\color{mpdark}Money Plot Labs Technical Whitepaper 002 \\ The Asymmetric Glide Path: Solving Bifurcated Growth}}
+\author{\textbf{Money Plot Labs}}
+\date{June 2026}
+
+\begin{document}
+
+\maketitle
+
+\section{The Transcendental Challenge}
+In Technical Whitepaper 001, we derived a closed-form solution for the working years $w$ under a unified growth rate $r$. However, modern portfolio theory suggests a "glide path," where risk—and therefore expected return—is reduced as an individual moves from accumulation to decumulation. 
+
+When we introduce two distinct rates, $r_{acc}$ (Working Growth) and $r_{dec}$ (Retirement Growth), the boundary equation becomes:
+\begin{equation}
+    R_f(A_w(w, r_{acc}), f, r_{dec}) = L
+\end{equation}
+
+Expanding this using the Annuity Due model derived previously:
+\begin{equation}
+    \left[ A_0(1+r_{acc})^w + s \frac{(1+r_{acc})^w - 1}{r_{acc}} \right] (1+r_{dec})^{H-w} - c \frac{(1+r_{dec})^{H-w+1} - (1+r_{dec})}{r_{dec}} = L
+\end{equation}
+
+Unlike the unified case, the variable $w$ now appears in the exponents of two different bases: $(1+r_{acc})$ and $(1+r_{dec})$. This is a \textbf{transcendental equation}. There is no finite sequence of algebraic operations that can isolate $w$, necessitating a shift from analytical solvers to numerical approximation.
+
+\section{The Numerical Solver: Bisection Method}
+To solve for $w$, the Money Plot engine utilizes the Bisection Method (a form of Binary Search). This method is robust, guaranteed to converge on a continuous function, and avoids the "division by zero" or "log of negative" errors that Newton-Raphson methods might encounter in extreme financial scenarios.
+
+\subsection{The Objective Function}
+We define the function $f(w)$ as the net difference between the terminal balance and the target legacy floor:
+\begin{equation}
+    f(w) = \text{TerminalBalance}(w) - L
+\end{equation}
+The goal is to find the root where $f(w) = 0$ within the interval $[0, H]$.
+
+\subsection{The Algorithm}
+\begin{enumerate}
+    \item \textbf{Initialize}: Set $low = 0$, $high = H$.
+    \item \textbf{Evaluate Boundaries}: 
+        \begin{itemize}
+            \item If $f(0) \geq 0$, the individual is "Already Free" ($w=0$).
+            \item If $f(H) < 0$, the target is unreachable ("Never").
+        \end{itemize}
+    \item \textbf{Iterate}: For $i = 1$ to 60:
+        \begin{itemize}
+            \item $mid = \frac{low + high}{2}$
+            \item If $f(mid) < 0$, then $low = mid$ (Must work longer).
+            \item Else, $high = mid$ (Can retire sooner).
+        \end{itemize}
+    \item \textbf{Result}: $w = \frac{low + high}{2}$.
+\end{enumerate}
+A 60-iteration search provides a precision of $H \cdot 2^{-60}$. Over a 100-year horizon, this yields a precision of approximately $8.6 \times 10^{-17}$ years, far exceeding any practical requirement.
+
+\section{Bifurcated Model Components}
+
+\subsection{Accumulation (The Input)}
+The asset state at the moment of retirement ($A_w$) is governed by the accumulation rate:
+\begin{equation}
+    A_w = A_0(1+r_{acc})^w + s \frac{(1+r_{acc})^w - 1}{r_{acc}}
+\end{equation}
+
+\subsection{Decumulation (The Output)}
+The depletion of $A_w$ over the retirement years $f = H-w$ is governed by the decumulation rate using the Annuity Due timing (spending at the start of the year):
+\begin{equation}
+    Balance_t = A_w(1+r_{dec})^t - c \frac{(1+r_{dec})^{t+1} - (1+r_{dec})}{r_{dec}}
+\end{equation}
+
+\section{Impact of Rate Bifurcation}
+Splitting the rates reveals two critical insights:
+\begin{enumerate}
+    \item \textbf{Accumulation Dominance}: Higher $r_{acc}$ reduces $w$ exponentially. A 1\% increase in $r_{acc}$ during early working years has a larger impact on the retirement date than a 1\% increase in $r_{dec}$ during retirement.
+    \item \textbf{Sequence Protection}: Lowering $r_{dec}$ (e.g., shifting to bonds) increases the required $A_w$ but flattens the depletion curve, reducing the variance of the terminal outcome $L$.
+\end{enumerate}
+
+\end{document}

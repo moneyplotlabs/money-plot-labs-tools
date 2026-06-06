@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Money Plot Labs - Retirement Timeline Calculator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="container">
+    <h2>Money Plot Labs: The Pure Math of Freedom</h2>
+
+    <div class="metrics-grid">
+        <div class="metric-card">
+            <div class="metric-label">Working Years Needed</div>
+            <div id="metric-work-years" class="metric-value">0.0 Years</div>
+        </div>
+        <div class="metric-card blue">
+            <div class="metric-label">Retirement Age Target</div>
+            <div id="metric-retire-age" class="metric-value">Age --</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Peak Nest Egg Needed</div>
+            <div id="metric-peak-nw" class="metric-value">$0</div>
+        </div>
+    </div>
+
+    <div class="layout-split">
+
+        <!-- Chart -->
+        <div>
+            <div class="chart-header">
+                <span class="chart-label">Visual Timeline</span>
+                <button class="btn-lock btn-lock-chart" id="main-chart-lock">Lock Scale for Comparison</button>
+            </div>
+            <div class="chart-container">
+                <canvas id="timelineChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+
+            <div class="control-group">
+                <label class="control-label">Current Age</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-start-age" min="0" max="120" value="25">
+                    <input type="number" id="box-start-age"    class="manual-box" min="0" max="120" value="25">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Life Expectancy</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-end-age" min="0" max="120" value="95">
+                    <input type="number" id="box-end-age"    class="manual-box" min="0" max="120" value="95">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label" id="label-principal">Starting Balance: $0</label>
+                <div class="interactive-row">
+                    <input type="range"  id="input-principal" min="0" max="1000000" step="10000" value="0">
+                    <input type="number" id="box-principal"   class="manual-box" min="0" step="1000" value="0" placeholder="$">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label" id="label-savings">Annual Savings: $15,000/yr</label>
+                <div class="interactive-row">
+                    <input type="range"  id="input-savings" min="0" max="100000" step="2000" value="15000">
+                    <input type="number" id="box-savings"   class="manual-box" min="-1000000" step="1000" value="15000">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label" id="label-spending">Annual Retirement Spending: $50,000/yr</label>
+                <div class="interactive-row">
+                    <input type="range"  id="input-spending" min="0" max="100000" step="2000" value="45000">
+                    <input type="number" id="box-spending"   class="manual-box" min="0" step="1000" value="45000">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label" id="label-growth">Real Growth Rate during accumulation: 3.0%</label>
+                <div class="interactive-row">
+                    <input type="range"  id="input-growth" min="-3.0" max="7.0" step="0.5" value="3.0">
+                    <input type="number" id="box-growth"   class="manual-box" min="-5.0" max="15.0" step="0.1" value="3.0">
+                </div>
+            </div>
+
+            <div class="advanced-toggle" id="advanced-button">
+                <span>More Parameters</span>
+                <svg class="chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+
+            <div class="advanced-content" id="advanced-panel">
+
+                <!-- Chart X-Axis Bounds -->
+                <div class="advanced-row-x">
+                    <div class="x-input-pair">
+                        <div class="control-group">
+                            <label class="control-label">Chart Min Age</label>
+                            <input type="number" id="box-axis-min" min="0" max="100" value="" placeholder="Auto (Age)">
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label">Chart Max Age</label>
+                            <input type="number" id="box-axis-max" min="30" max="150" value="" placeholder="Auto (Expectancy)">
+                        </div>
+                    </div>
+                    <button class="btn-lock" id="btn-lock-x">Lock Current</button>
+                </div>
+
+                <!-- Chart Y-Axis Bound -->
+                <div class="advanced-row-y">
+                    <div class="control-group y-input-wrap">
+                        <label class="control-label">Chart Max Net Worth ($)</label>
+                        <input type="number" id="box-y-max" step="100000" min="0" value="" placeholder="Auto (Peak Net Worth)">
+                    </div>
+                    <button class="btn-lock" id="btn-lock-y">Lock Current</button>
+                </div>
+
+                <!-- Decumulation Growth Rate -->
+                <div class="control-group">
+                    <div class="section-header">
+                        <label class="control-label" id="label-growth-dec">Real Growth Rate (Decumulation): 3.0%</label>
+                        <button class="btn-lock btn-lock-sm" id="btn-link-rates">Link to Accumulation</button>
+                    </div>
+                    <div class="interactive-row">
+                        <input type="range"  id="input-growth-dec" min="-3.0" max="7.0" step="0.5" value="3.0">
+                        <input type="number" id="box-growth-dec"   class="manual-box" min="-5.0" max="15.0" step="0.1" value="3.0">
+                    </div>
+                </div>
+
+                <!-- Legacy Floor -->
+                <div class="control-group">
+                    <label class="control-label" id="label-legacy-floor">Desired Legacy Floor: $0</label>
+                    <div class="interactive-row">
+                        <input type="range"  id="slider-legacy-floor" min="0" max="1000000" step="50000" value="0">
+                        <input type="number" id="box-legacy-floor"    class="manual-box" min="0" max="5000000" step="50000" value="0" placeholder="$">
+                    </div>
+                </div>
+
+                <!-- Social Security / Pensions -->
+                <div class="section-divider">
+                    <div class="section-header">
+                        <label class="control-label">Social Security / Pensions</label>
+                        <button class="btn-lock btn-lock-sm" id="btn-add-ss">+ Add</button>
+                    </div>
+                    <div id="ss-list" class="event-list"></div>
+                </div>
+
+                <!-- Windfalls -->
+                <div class="section-divider">
+                    <div class="section-header">
+                        <label class="control-label">One-time Windfalls (Inheritance)</label>
+                        <button class="btn-lock btn-lock-sm" id="btn-add-windfall">+ Add</button>
+                    </div>
+                    <div id="windfall-list" class="event-list"></div>
+                </div>
+
+                <p class="doc-notes">
+                    <strong>Bifurcated Growth Rates:</strong> This model supports independent growth rates for the
+                    working and retirement phases. By unlinking these, you can simulate a "glide path" transition
+                    from growth-oriented assets while working to more conservative, capital-preservation assets
+                    (e.g., bonds) in retirement. 3% for most time frames results in same retirement age as following
+                    4% safe withdrawal rate rule.
+                </p>
+
+            </div><!-- /advanced-panel -->
+        </div><!-- /controls -->
+    </div><!-- /layout-split -->
+
+    <div class="doc-footer">
+        <div class="doc-notes">
+            <p>
+                <strong>Pure Math Framework:</strong> All figures are calculated in <strong>today's dollars</strong>
+                (inflation-adjusted). The default <strong>3.0% real growth rate</strong> means your investments grow
+                by 3% <em>on top of</em> inflation (e.g., if inflation is 2%, your nominal return is 5%). This
+                conservative baseline is structurally designed to mirror real-world safety nets like the
+                <a href="https://www.bogleheads.org/wiki/Trinity_study" target="_blank" class="link-accent">4% Rule</a>.
+            </p>
+            <p>
+                While <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histretSP.html" target="_blank" class="link-accent">historic portfolios</a>
+                (e.g., a balanced 60/40 mix) average a long-term 5.7% real growth rate, they carry a 9.5%
+                standard deviation. This "Sequence of Returns" risk means dropping the baseline to a smooth 3.0%
+                mathematically simulates the volatility buffer needed to survive severe market downturns.
+            </p>
+            <p>
+                <strong>Data Attribution:</strong> Historical S&amp;P 500 and US Treasury Bond returns are sourced
+                from <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histretSP.html" target="_blank" class="link-accent">Aswath Damodaran's dataset at NYU Stern</a>.
+                Figures represent real annual returns adjusted for inflation via CPI.
+            </p>
+        </div>
+        <div class="doc-links">
+            <a href="./docs/001-the-pure-math-of-financial-freedom.pdf" target="_blank" class="btn-doc">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                View Mathematical Derivations (PDF)
+            </a>
+            <a href="./docs/002-asymmetric-glide-path.pdf" target="_blank" class="btn-doc">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                Glide Path Whitepaper (PDF)
+            </a>
+            <a href="https://github.com/moneyplot/retirement-timeline-simplified" target="_blank" class="btn-doc">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+                View Source on GitHub
+            </a>
+        </div>
+    </div>
+
+    <nav class="tools-nav">
+        <a href="#" class="nav-item active" title="Static, Closed-form calculus">
+            1. Macro Sandbox
+            <span>High-level Engine</span>
+        </a>
+        <a href="LifepathCashFlowSimulator.html" class="nav-item" title="Static, Year-by-year lookup">
+            2. Cash Flow Planner
+            <span>Variable Yearly Flow</span>
+        </a>
+        <a href="StressTester.html" class="nav-item" title="Stochastic, Lifepath engine">
+            3. Stress Tester
+            <span>Lifepath Volatility</span>
+        </a>
+        <a href="HSATransfer.html" class="nav-item" title="HSA transfer-fee optimization">
+            4. HSA Transfer
+            <span>Fee Optimization</span>
+        </a>
+    </nav>
+
+</div><!-- /container -->
+
+<script src="common.js"></script>
+<script src="engine.js"></script>
+<script src="index.js"></script>
+<footer class="site-footer">
+    Money Plot Labs · <a href="https://docs.google.com/forms/d/e/1FAIpQLSdMDJYC1tLzpVimhVExzzZspFVAxCYKDUOZnlokIErD3mrQsw/viewform?usp=pp_url&amp;entry.2075267935=Macro+Sandbox" target="_blank" rel="noopener noreferrer">Send feedback</a>
+</footer>
+</body>
+</html>

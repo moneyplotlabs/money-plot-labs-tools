@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Money Plot Labs - Lifepath Cash Flow Simulator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="container">
+    <h2>Money Plot Labs: Lifepath Cash Flow Simulator</h2>
+
+    <div class="metrics-grid">
+        <div class="metric-card">
+            <div class="metric-label">Working Years Needed</div>
+            <div id="metric-work-years" class="metric-value">0.0 Years</div>
+        </div>
+        <div class="metric-card blue">
+            <div class="metric-label">Retirement Age Target</div>
+            <div id="metric-retire-age" class="metric-value">Age --</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Peak Nest Egg Needed</div>
+            <div id="metric-peak-nw" class="metric-value">$0</div>
+        </div>
+    </div>
+
+    <div class="layout-split">
+
+        <!-- Chart -->
+        <div>
+            <div class="chart-header">
+                <span class="chart-label">Stochastic Trajectory Projection</span>
+                <button class="btn-lock btn-lock-chart" id="main-chart-lock">Lock Scale for Comparison</button>
+            </div>
+            <div class="chart-container">
+                <canvas id="lifepathChart"></canvas>
+                <div id="chart-loader" class="chart-loader">
+                    <span class="placeholder-text">Chart initialization pending engine logic...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+
+            <div class="control-group">
+                <label class="control-label">Current Age</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-start-age" min="0" max="100" value="30">
+                    <input type="number" id="box-start-age"    class="manual-box" min="0" max="100" value="30">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Life Expectancy</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-end-age" min="0" max="120" value="95">
+                    <input type="number" id="box-end-age"    class="manual-box" min="0" max="120" value="95">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label" id="label-principal">Starting Balance: $0</label>
+                <div class="interactive-row">
+                    <input type="range"  id="input-principal" min="0" max="1000000" step="10000" value="0">
+                    <input type="number" id="box-principal"   class="manual-box" min="0" step="1000" value="0" placeholder="$">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label" id="label-growth">Real Growth Rate during accumulation: 3.0%</label>
+                <div class="interactive-row">
+                    <input type="range"  id="input-growth" min="-3.0" max="7.0" step="0.5" value="3.0">
+                    <input type="number" id="box-growth"   class="manual-box" min="-5.0" max="15.0" step="0.1" value="3.0">
+                </div>
+            </div>
+
+            <div class="advanced-toggle" id="advanced-button">
+                <span>More Parameters</span>
+                <svg class="chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+
+            <div class="advanced-content" id="advanced-panel">
+
+                <!-- Decumulation Growth Rate -->
+                <div class="control-group">
+                    <div class="section-header">
+                        <label class="control-label" id="label-growth-dec">Real Growth Rate (Decumulation): 3.0%</label>
+                        <button class="btn-lock btn-lock-sm" id="btn-link-rates">Link to Accumulation</button>
+                    </div>
+                    <div class="interactive-row">
+                        <input type="range"  id="input-growth-dec" min="-3.0" max="7.0" step="0.5" value="3.0">
+                        <input type="number" id="box-growth-dec"   class="manual-box" min="-5.0" max="15.0" step="0.1" value="3.0">
+                    </div>
+                </div>
+
+                <!-- Legacy Floor -->
+                <div class="control-group">
+                    <label class="control-label" id="label-legacy-floor">Desired Legacy Floor: $0</label>
+                    <div class="interactive-row">
+                        <input type="range"  id="slider-legacy-floor" min="0" max="1000000" step="50000" value="0">
+                        <input type="number" id="box-legacy-floor"    class="manual-box" min="0" max="5000000" step="50000" value="0" placeholder="$">
+                    </div>
+                </div>
+
+                <!-- Chart X-Axis Bounds -->
+                <div class="advanced-row-x">
+                    <div class="x-input-pair">
+                        <div class="control-group">
+                            <label class="control-label">Chart Min Age</label>
+                            <input type="number" id="box-axis-min" min="0" max="100" value="" placeholder="Auto">
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label">Chart Max Age</label>
+                            <input type="number" id="box-axis-max" min="30" max="150" value="" placeholder="Auto">
+                        </div>
+                    </div>
+                </div>
+                <button class="btn-lock btn-lock-full" id="btn-lock-x">Lock Current X</button>
+
+                <!-- Chart Y-Axis (Net Worth) -->
+                <div class="control-group">
+                    <label class="control-label">Chart Max Net Worth ($)</label>
+                    <input type="number" id="box-y-max" step="100000" min="0" value="" placeholder="Auto (Peak Net Worth)">
+                </div>
+                <button class="btn-lock btn-lock-full" id="btn-lock-y">Lock Current Y</button>
+
+                <!-- Chart Left Y-Axis (Cash Flow) -->
+                <div class="advanced-row-y">
+                    <div class="x-input-pair">
+                        <div class="control-group">
+                            <label class="control-label">Chart Min Flow ($)</label>
+                            <input type="number" id="box-y-left-min" step="5000" value="" placeholder="Auto">
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label">Chart Max Flow ($)</label>
+                            <input type="number" id="box-y-left-max" step="10000" value="" placeholder="Auto">
+                        </div>
+                    </div>
+                </div>
+                <button class="btn-lock btn-lock-full" id="btn-lock-y-left">Lock Current Left Y</button>
+
+                <!-- Social Security / Pensions -->
+                <div class="section-divider">
+                    <div class="section-header">
+                        <label class="control-label">Social Security / Pensions</label>
+                        <button class="btn-lock btn-lock-sm" id="btn-add-ss">+ Add</button>
+                    </div>
+                    <div id="ss-list" class="event-list"></div>
+                </div>
+
+                <!-- Windfalls -->
+                <div class="section-divider">
+                    <div class="section-header">
+                        <label class="control-label">One-time Windfalls</label>
+                        <button class="btn-lock btn-lock-sm" id="btn-add-windfall">+ Add</button>
+                    </div>
+                    <div id="windfall-list" class="event-list"></div>
+                </div>
+
+            </div><!-- /advanced-panel -->
+
+            <div id="milestone-container" class="milestone-list"></div>
+            <button id="add-event-btn" class="btn-add-event">+ Add Life Event (Milestone)</button>
+
+        </div><!-- /controls -->
+    </div><!-- /layout-split -->
+
+    <nav class="tools-nav">
+        <a href="index.html" class="nav-item" title="Static, Closed-form calculus">
+            1. Macro Sandbox
+            <span>High-level Engine</span>
+        </a>
+        <a href="#" class="nav-item active" title="Static, Year-by-year lookup">
+            2. Cash Flow Planner
+            <span>Variable Yearly Flow</span>
+        </a>
+        <a href="StressTester.html" class="nav-item" title="Stochastic, Lifepath engine">
+            3. Stress Tester
+            <span>Lifepath Volatility</span>
+        </a>
+        <a href="HSATransfer.html" class="nav-item" title="HSA transfer-fee optimization">
+            4. HSA Transfer
+            <span>Fee Optimization</span>
+        </a>
+    </nav>
+
+</div><!-- /container -->
+
+<script src="common.js"></script>
+<script src="engine.js"></script>
+<script src="lifepath.js"></script>
+<footer class="site-footer">
+    Money Plot Labs · <a href="https://docs.google.com/forms/d/e/1FAIpQLSdMDJYC1tLzpVimhVExzzZspFVAxCYKDUOZnlokIErD3mrQsw/viewform?usp=pp_url&amp;entry.2075267935=Cash+Flow+Planner" target="_blank" rel="noopener noreferrer">Send feedback</a>
+</footer>
+</body>
+</html>

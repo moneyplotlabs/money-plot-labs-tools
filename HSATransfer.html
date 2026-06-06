@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Money Plot Labs - HSA Transfer Optimizer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="container">
+    <h2>Money Plot Labs: HSA Transfer Optimizer</h2>
+
+    <div class="metrics-grid">
+        <div class="metric-card">
+            <div class="metric-label">Optimal Transfers</div>
+            <div id="metric-k" class="metric-value">–</div>
+        </div>
+        <div class="metric-card blue">
+            <div class="metric-label">Final Value</div>
+            <div id="metric-value" class="metric-value">$0</div>
+        </div>
+        <div class="metric-card green">
+            <div class="metric-label">Gain vs One Transfer</div>
+            <div id="metric-gain" class="metric-value">$0</div>
+        </div>
+    </div>
+
+    <div id="schedule-summary" class="schedule-summary">
+        <span class="placeholder-text">Enter your details to compute the optimal transfer schedule…</span>
+    </div>
+
+    <div class="layout-split">
+
+        <!-- Charts -->
+        <div>
+            <div class="chart-header">
+                <span class="chart-label">Final Value vs. Number of Transfers</span>
+            </div>
+            <div class="chart-container chart-container-sm">
+                <canvas id="kChart"></canvas>
+            </div>
+
+            <div class="chart-header" style="margin-top:1rem;">
+                <span class="chart-label">Portfolio Value Over Time (optimal schedule)</span>
+            </div>
+            <div class="chart-container">
+                <canvas id="trajectoryChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+
+            <div class="control-group">
+                <label class="control-label" id="label-years">Investment Horizon: 3 years</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-years" min="1" max="40" value="3">
+                    <input type="number" id="box-years"    class="manual-box" min="1" max="40" value="3">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label" id="label-annual">Annual Contribution (drip): $4,000</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-annual" min="0" max="10000" step="100" value="4000">
+                    <input type="number" id="box-annual"    class="manual-box" min="0" step="100" value="4000" placeholder="$">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label" id="label-return">Expected Return on Investments: 4.0%</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-return" min="0" max="12" step="0.1" value="4">
+                    <input type="number" id="box-return"    class="manual-box" min="0" step="0.1" value="4">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Transfer Fee ($ per transfer)</label>
+                <div class="interactive-row">
+                    <input type="number" id="box-fee" class="manual-box" min="0" step="1" value="25" style="flex:1;">
+                </div>
+            </div>
+
+            <!-- Lump sums -->
+            <div class="section-divider">
+                <div class="section-header">
+                    <label class="control-label">Recurring Lump Sums (each year)</label>
+                    <button class="btn-lock btn-lock-sm" id="btn-add-lump">+ Add</button>
+                </div>
+                <div id="lump-list" class="event-list"></div>
+                <div class="control-hint">Employer/HSA deposits that repeat annually — e.g. $800 on Jan 1, $300 in mid-February.</div>
+            </div>
+
+        </div><!-- /controls -->
+    </div><!-- /layout-split -->
+
+    <div class="doc-footer">
+        <div class="doc-notes">
+            <p>
+                <strong>What this does:</strong> HSA contributions usually land in a cash account earning
+                little or nothing. Moving them into investments earning a real return is worth doing, but
+                each transfer costs a flat fee. Transferring too often wastes money on fees; transferring
+                too rarely leaves cash sitting idle. This tool finds the number of transfers and the exact
+                days that maximize your final balance.
+            </p>
+            <p>
+                <strong>Method:</strong> contributions accumulate as a daily drip plus your recurring annual
+                lump sums (all at 0% while uninvested). For any schedule of transfer days, each transferred
+                block pays the fee and then compounds at your expected return to the end of the term; a final
+                transfer closes out the remaining cash. The optimal schedule is found exactly (at day
+                resolution) with a dynamic program over transfer days, and the chart of value vs. number of
+                transfers shows where the benefit of compounding is overtaken by the cost of fees.
+            </p>
+            <p>
+                <strong>Note:</strong> this is an illustrative model, not tax or investment advice. It assumes
+                a constant expected return and ignores taxes, the timing of market moves, and any HSA-specific
+                investment thresholds or rules. Treat the schedule as guidance on cadence, not exact dates.
+            </p>
+        </div>
+    </div>
+
+    <nav class="tools-nav">
+        <a href="index.html" class="nav-item" title="Static, Closed-form calculus">
+            1. Macro Sandbox
+            <span>High-level Engine</span>
+        </a>
+        <a href="LifepathCashFlowSimulator.html" class="nav-item" title="Static, Year-by-year lookup">
+            2. Cash Flow Planner
+            <span>Variable Yearly Flow</span>
+        </a>
+        <a href="StressTester.html" class="nav-item" title="Stochastic, Lifepath engine">
+            3. Stress Tester
+            <span>Lifepath Volatility</span>
+        </a>
+        <a href="#" class="nav-item active" title="HSA transfer-fee optimization">
+            4. HSA Transfer
+            <span>Fee Optimization</span>
+        </a>
+    </nav>
+
+</div><!-- /container -->
+
+<script src="common.js"></script>
+<script src="hsa-engine.js"></script>
+<script src="hsa.js"></script>
+<footer class="site-footer">
+    Money Plot Labs · <a href="https://docs.google.com/forms/d/e/1FAIpQLSdMDJYC1tLzpVimhVExzzZspFVAxCYKDUOZnlokIErD3mrQsw/viewform?usp=pp_url&amp;entry.2075267935=HSA+Transfer" target="_blank" rel="noopener noreferrer">Send feedback</a>
+</footer>
+</body>
+</html>
