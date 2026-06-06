@@ -3,7 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Money Plot Labs - HSA Transfer Optimizer</title>
+    <title>HSA Transfer Fee Optimizer | Money Plot Labs</title>
+    <meta name="description" content="Free tool that finds the best schedule for moving HSA cash into investments when each transfer costs a flat fee (like HealthEquity's). No signup — runs entirely in your browser.">
+    <!-- Open Graph: controls the link preview when shared (Reddit, social, chat) -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="HSA Transfer Fee Optimizer">
+    <meta property="og:description" content="When your HSA charges a flat fee to move cash into investments, transferring too often wastes fees and too rarely leaves cash idle. This free tool finds the optimal schedule.">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
     <link rel="stylesheet" href="styles.css">
 </head>
@@ -115,10 +120,24 @@
                 transfers shows where the benefit of compounding is overtaken by the cost of fees.
             </p>
             <p>
+                <strong>A common case:</strong> if your employer's HSA is with a provider like HealthEquity,
+                contributing by payroll deduction saves FICA payroll tax, so there's good reason to keep
+                contributing there. But the provider's in-house investments may carry a percentage fee and a
+                limited menu, so some people periodically transfer money out to a broader brokerage — and it's
+                that partial transfer-out that incurs a flat fee. This tool helps you decide how often paying
+                it is worth it.
+            </p>
+            <p>
                 <strong>Note:</strong> this is an illustrative model, not tax or investment advice. It assumes
                 a constant expected return and ignores taxes, the timing of market moves, and any HSA-specific
                 investment thresholds or rules. Treat the schedule as guidance on cadence, not exact dates.
             </p>
+        </div>
+        <div class="doc-links">
+            <a href="./docs/004-optimal-transfer-cadence-under-flat-fees.pdf" target="_blank" class="btn-doc">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                Transfer Cadence Whitepaper (PDF)
+            </a>
         </div>
     </div>
 
