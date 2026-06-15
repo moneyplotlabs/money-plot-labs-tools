@@ -49,6 +49,7 @@
 
             <div class="chart-header" style="margin-top:1rem;">
                 <span class="chart-label">Portfolio Value Over Time (optimal schedule)</span>
+                <span class="chart-label" id="comparison-note" style="color:var(--text-muted); font-weight:400;"></span>
             </div>
             <div class="chart-container">
                 <canvas id="trajectoryChart"></canvas>
@@ -87,6 +88,15 @@
                 <div class="interactive-row">
                     <input type="number" id="box-fee" class="manual-box" min="0" step="1" value="25" style="flex:1;">
                 </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label" id="label-compare">Compare to: 1 transfer</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-compare" min="0" max="36" step="1" value="1">
+                    <input type="number" id="box-compare"    class="manual-box" min="0" max="36" step="1" value="1">
+                </div>
+                <div class="control-hint">Pick a transfer count to compare against the optimal schedule.</div>
             </div>
 
             <!-- Lump sums -->

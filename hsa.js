@@ -47,12 +47,16 @@ const boxAnnual   = document.getElementById('box-annual');
 const sliderReturn= document.getElementById('slider-return');
 const boxReturn   = document.getElementById('box-return');
 const boxFee      = document.getElementById('box-fee');
+const sliderCompare = document.getElementById('slider-compare');
+const boxCompare    = document.getElementById('box-compare');
 const lumpList    = document.getElementById('lump-list');
 const btnAddLump  = document.getElementById('btn-add-lump');
 
 const labelYears  = document.getElementById('label-years');
 const labelAnnual = document.getElementById('label-annual');
 const labelReturn = document.getElementById('label-return');
+const labelCompare   = document.getElementById('label-compare');
+const comparisonNote = document.getElementById('comparison-note');
 
 const mK       = document.getElementById('metric-k');
 const mValue   = document.getElementById('metric-value');
@@ -112,6 +116,12 @@ function initCharts() {
             { label: 'Lump deposits', data: [], parsing: false, showLine: false,
               borderColor: THEME.accentRed, backgroundColor: THEME.accentRed,
               pointRadius: 5, pointHoverRadius: 7, pointStyle: 'rectRot', yAxisID: 'y' },
+            { label: 'Comparison value', data: [], parsing: false,
+              borderColor: THEME.accentBlue, backgroundColor: 'transparent',
+              borderWidth: 2, borderDash: [6, 4], pointRadius: 0, tension: 0.1, yAxisID: 'y' },
+            { label: 'Value gap (optimal − comparison)', data: [], parsing: false,
+              borderColor: THEME.accentRed, backgroundColor: 'rgba(239,68,68,0.10)',
+              borderWidth: 1.5, borderDash: [2, 2], fill: true, pointRadius: 0, tension: 0.1, yAxisID: 'yIdle' },
         ]},
         options: {
             responsive: true, maintainAspectRatio: false,
@@ -126,7 +136,7 @@ function initCharts() {
                      ticks: { callback: (v) => '$' + (v / 1000).toFixed(0) + 'k' } },
                 yIdle: { position: 'right', beginAtZero: true,
                      grid: { drawOnChartArea: false },
-                     title: { display: true, text: 'Idle cash ($)' },
+                     title: { display: true, text: 'Idle cash / value gap ($)' },
                      ticks: { callback: (v) => '$' + Math.round(v).toLocaleString() } },
             },
         },
@@ -213,12 +223,37 @@ function update() {
     const transferPts = [...res.bestDays, T].map(d => ({ x: d, y: Hsa.portfolioValueOverTime(d, res.bestDays, p) }));
     const lumpPts = p.lumpDeposits.map(dep => ({ x: dep.day, y: Hsa.portfolioValueOverTime(dep.day, res.bestDays, p) }));
 
+    // Comparison schedule: the optimal schedule for a user-chosen transfer count.
+    // Clamp to whatever range perK actually covers (short horizons may cap below KMAX).
+    const maxK = res.perK.length - 1;
+    sliderCompare.max = boxCompare.max = String(maxK);
+    let compareK = parseInt(boxCompare.value);
+    if (isNaN(compareK)) compareK = parseInt(sliderCompare.value) || 0;
+    compareK = Math.max(0, Math.min(maxK, compareK));
+    boxCompare.value = sliderCompare.value = String(compareK);
+    labelCompare.innerText = `Compare to: ${compareK} transfer${compareK === 1 ? '' : 's'}`;
+
+    const cmpEntry = res.perK[compareK];
+    const cmpLine  = [];
+    for (let d = 0; d <= T; d += step) cmpLine.push({ x: d, y: Hsa.portfolioValueOverTime(d, cmpEntry.days, p) });
+    if (cmpLine[cmpLine.length - 1].x !== T) cmpLine.push({ x: T, y: Hsa.portfolioValueOverTime(T, cmpEntry.days, p) });
+    const diffLine = line.map((pt, i) => ({ x: pt.x, y: Math.max(0, pt.y - (cmpLine[i] ? cmpLine[i].y : pt.y)) }));
+
     trajectoryChart.data.datasets[0].data = line;
     trajectoryChart.data.datasets[1].data = idle;
     trajectoryChart.data.datasets[2].data = transferPts;
     trajectoryChart.data.datasets[3].data = lumpPts;
+    trajectoryChart.data.datasets[4].label = `Comparison (k=${compareK})`;
+    trajectoryChart.data.datasets[4].data  = cmpLine;
+    trajectoryChart.data.datasets[5].data  = diffLine;
     trajectoryChart.options.scales.x.max = T;
     trajectoryChart.update('none');
+
+    // Comparison note next to the chart header.
+    const diffVal = res.bestValue - cmpEntry.value;
+    comparisonNote.innerText = (compareK === res.bestK)
+        ? `k=${compareK} matches the optimum.`
+        : `k=${compareK}: ${formatCurrency(cmpEntry.value)} (optimal is +${formatCurrency(diffVal)})`;
 }
 
 // ── Lump-sum rows ──────────────────────────────────────────────
@@ -265,6 +300,7 @@ function linkInputs(slider, box, labelFn) {
 linkInputs(sliderYears,  boxYears,  (v) => labelYears.innerText  = `Investment Horizon: ${v} year${v == 1 ? '' : 's'}`);
 linkInputs(sliderAnnual, boxAnnual, (v) => labelAnnual.innerText = `Annual Contribution (drip): ${formatCurrency(parseFloat(v) || 0)}`);
 linkInputs(sliderReturn, boxReturn, (v) => labelReturn.innerText = `Expected Return on Investments: ${(parseFloat(v) || 0).toFixed(1)}%`);
+linkInputs(sliderCompare, boxCompare, (v) => labelCompare.innerText = `Compare to: ${v} transfer${v == 1 ? '' : 's'}`);
 boxFee.addEventListener('change', update);
 
 // ── Boot ───────────────────────────────────────────────────────
