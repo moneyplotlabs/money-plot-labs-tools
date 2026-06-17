@@ -16,14 +16,17 @@
         <div class="metric-card">
             <div class="metric-label">Working Years Needed</div>
             <div id="metric-work-years" class="metric-value">0.0 Years</div>
+            <div id="metric-work-years-ref" class="metric-subvalue"></div>
         </div>
         <div class="metric-card blue">
             <div class="metric-label">Retirement Age Target</div>
             <div id="metric-retire-age" class="metric-value">Age --</div>
+            <div id="metric-retire-age-ref" class="metric-subvalue"></div>
         </div>
         <div class="metric-card">
-            <div class="metric-label">Peak Nest Egg Needed</div>
+            <div class="metric-label" id="metric-peak-nw-label">Peak Nest Egg Needed</div>
             <div id="metric-peak-nw" class="metric-value">$0</div>
+            <div id="metric-peak-nw-ref" class="metric-subvalue"></div>
         </div>
     </div>
 
@@ -42,6 +45,31 @@
 
         <!-- Controls -->
         <div class="controls">
+
+            <div class="control-group">
+                <label class="control-label">Dollar Display</label>
+                <div class="segmented-toggle" id="display-mode-toggle">
+                    <button type="button" class="seg-btn active" data-mode="real">Today's $ (Real)</button>
+                    <button type="button" class="seg-btn" data-mode="nominal">Future $ (Nominal)</button>
+                </div>
+            </div>
+
+            <div class="control-group" id="inflation-group" style="display:none;">
+                <label class="control-label" id="label-inflation">Assumed Inflation Rate: 3.0%</label>
+                <div class="interactive-row">
+                    <input type="range"  id="input-inflation" min="0" max="8" step="0.1" value="3.0">
+                    <input type="number" id="box-inflation"   class="manual-box" min="0" max="20" step="0.1" value="3.0">
+                </div>
+                <p class="control-note">
+                    Nominal (future $) applies only to the <strong>results and chart</strong>. All inputs
+                    below — starting balance, savings, spending, Social Security, windfalls, and the legacy
+                    floor — are still entered in <strong>today's dollars</strong>.
+                </p>
+                <label class="check-row">
+                    <input type="checkbox" id="chk-buying-power" checked>
+                    <span>Show equal-buying-power curves (constant today's $)</span>
+                </label>
+            </div>
 
             <div class="control-group">
                 <label class="control-label">Current Age</label>

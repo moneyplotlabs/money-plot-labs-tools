@@ -81,6 +81,47 @@ h2 {
 .metric-card.blue  .metric-value { color: var(--accent-blue); }
 .metric-card.green .metric-value { color: var(--accent-green); }
 
+/* Secondary reference value under a metric (e.g. real $ shown beneath nominal) */
+.metric-subvalue {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-top: 4px;
+    min-height: 1em;
+}
+
+/* ============================================================
+   Segmented toggle (Real / Nominal display switch)
+   ============================================================ */
+.segmented-toggle {
+    display: flex;
+    gap: 4px;
+    background-color: rgba(15, 23, 42, 0.5);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+}
+
+.segmented-toggle .seg-btn {
+    flex: 1;
+    padding: 8px 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    background-color: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+.segmented-toggle .seg-btn:hover { color: var(--text-main); }
+
+.segmented-toggle .seg-btn.active {
+    background-color: var(--accent-blue);
+    color: #fff;
+}
+
 /* ============================================================
    Layout
    ============================================================ */
@@ -166,6 +207,31 @@ h2 {
     font-weight: 500;
     color: var(--text-main);
 }
+
+.control-note {
+    font-size: 0.75rem;
+    line-height: 1.45;
+    color: var(--text-muted);
+    margin: 4px 0 0;
+    padding: 8px 10px;
+    background: rgba(15, 23, 42, 0.4);
+    border-left: 2px solid var(--accent-blue);
+    border-radius: 4px;
+}
+
+.control-note strong { color: var(--text-main); font-weight: 600; }
+
+.check-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.check-row input { accent-color: var(--accent-blue); width: 15px; height: 15px; }
 
 /* ============================================================
    Inputs
