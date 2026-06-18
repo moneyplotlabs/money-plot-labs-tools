@@ -47,6 +47,14 @@ const btnAddWindfall     = document.getElementById('btn-add-windfall');
 const mWorkYears         = document.getElementById('metric-work-years');
 const mRetireAge         = document.getElementById('metric-retire-age');
 const mPeakNw            = document.getElementById('metric-peak-nw');
+const mPeakNwLabel       = document.getElementById('metric-peak-nw-label');
+const mPeakNwRef         = document.getElementById('metric-peak-nw-ref');
+
+const displayToggle      = document.getElementById('display-mode-toggle');
+const inflationGroup     = document.getElementById('inflation-group');
+const inputInflation     = document.getElementById('input-inflation');
+const boxInflation       = document.getElementById('box-inflation');
+const chkBuyingPower     = document.getElementById('chk-buying-power');
 
 // ── State ─────────────────────────────────────────────────────
 let chartInstance         = null;
@@ -54,6 +62,7 @@ let ratesLinked           = false;
 let computedMinFlowCache  = 0;
 let computedPeakFlowCache = 0;
 let computedPeakCache     = 0;
+let displayMode           = 'real';   // 'real' (today's $) or 'nominal' (future $)
 
 let milestones    = [];
 let ssEvents      = [];
@@ -77,6 +86,7 @@ function initChart() {
                     borderColor:     '#10b981',
                     borderWidth:     1,
                     stack:           'flow',
+                    yAxisID:         'y',
                 },
                 {
                     label:           'Outflow (Spending)',
@@ -85,6 +95,7 @@ function initChart() {
                     borderColor:     '#ef4444',
                     borderWidth:     1,
                     stack:           'flow',
+                    yAxisID:         'y',
                 },
                 {
                     label:           'Asset Growth',
@@ -93,6 +104,7 @@ function initChart() {
                     borderColor:     '#8B5CF6',
                     borderWidth:     1,
                     stack:           'flow',
+                    yAxisID:         'y',
                 },
                 {
                     label:       'Projected Net Worth',
@@ -117,32 +129,48 @@ function initChart() {
                     ticks: { color: '#94a3b8', font: { size: 10 } },
                     title: { display: true, text: 'Age', color: '#94a3b8' },
                 },
-                y: {
-                    stacked:      true,
-                    grid:         { color: '#334155' },
-                    beginAtZero:  true,
-                    ticks:        { color: '#94a3b8', callback: (v) => '$' + Math.abs(v).toLocaleString() },
-                    title:        { display: true, text: 'Annual Cash Flow ($)', color: '#94a3b8' },
-                },
+                // Net worth on the LEFT — the equal-buying-power curves start here at
+                // today's value and rise from it, so it reads as the primary axis.
                 yNetWorth: {
-                    position: 'right',
-                    grid:     { display: false },
+                    position: 'left',
+                    grid:     { color: '#334155' },
                     min:      0,
                     ticks:    {
                         color:    '#3b82f6',
                         callback: (v) => v >= 1000000 ? '$' + (v / 1000000).toFixed(1) + 'M' : '$' + (v / 1000).toFixed(0) + 'k',
                     },
+                    title:    { display: true, text: 'Net Worth ($)', color: '#3b82f6' },
+                },
+                // Cash flow on the RIGHT.
+                y: {
+                    position:     'right',
+                    stacked:      true,
+                    grid:         { display: false },
+                    beginAtZero:  true,
+                    ticks:        { color: '#94a3b8', callback: (v) => '$' + Math.abs(v).toLocaleString() },
+                    title:        { display: true, text: 'Annual Cash Flow ($)', color: '#94a3b8' },
                 },
             },
             plugins: {
-                legend:  { labels: { color: '#f8fafc' } },
+                legend:  {
+                    labels: {
+                        color:  '#f8fafc',
+                        filter: (item, data) => !data.datasets[item.datasetIndex].isBuyingPower,
+                    },
+                },
                 tooltip: {
                     mode:      'nearest',
                     axis:      'x',
                     intersect: false,
                     callbacks: {
                         title: (ctx) => 'Age ' + ctx[0].parsed.x.toFixed(1),
-                        label: (ctx) => (ctx.dataset.label || '') + ': $' + Math.abs(ctx.parsed.y).toLocaleString(),
+                        label: (ctx) => ctx.dataset.isBuyingPower
+                            ? 'Equal buying power: $' + Math.abs(Math.round((ctx.raw && ctx.raw.yReal) || 0)).toLocaleString() + " today"
+                            : (ctx.dataset.label || '') + ': $' + Math.abs(ctx.parsed.y).toLocaleString(),
+                        afterLabel: (ctx) => (displayMode === 'nominal' && !ctx.dataset.isBuyingPower
+                                && ctx.raw != null && ctx.raw.yReal != null)
+                            ? "≈ $" + Math.abs(Math.round(ctx.raw.yReal)).toLocaleString() + " in today's $"
+                            : undefined,
                     },
                 },
             },
@@ -159,6 +187,42 @@ function simulateLife(startAge, endAge, principal, rAcc, rDec, rAge, planningEnd
         milestones: milestones,
         ss:         ssEvents,
         windfall:   windfallEvents,
+    });
+}
+
+// ── Nominal-display helpers ───────────────────────────────────
+// Scale a real {x:age, y:value} series to nominal future dollars, preserving the
+// real value as yReal for tooltip reference. Null gaps (post-planning) are kept.
+function scaleNominal(series, currentAge, infl) {
+    return series.map(pt => (pt.y === null || pt.y === undefined)
+        ? { x: pt.x, y: null, yReal: null }
+        : { x: pt.x, y: pt.y * Math.pow(1 + infl, pt.x - currentAge), yReal: pt.y });
+}
+
+// One family of dashed equal-buying-power curves: each constant today's-dollar
+// level shown as it inflates into future dollars across the visible age range.
+function buyingPowerFamily(levels, axisID, currentAge, infl, lo, hi, color, stackPrefix) {
+    return levels.map((level, i) => {
+        const data = [];
+        for (let age = lo; age <= hi; age++) {
+            data.push({ x: age, y: level * Math.pow(1 + infl, age - currentAge), yReal: level });
+        }
+        const ds = {
+            label:        formatCurrency(level) + " (today's $)",
+            data,
+            type:         'line',
+            yAxisID:      axisID,
+            borderColor:  color,
+            borderDash:   [4, 4],
+            borderWidth:  1,
+            pointRadius:  0,
+            fill:         false,
+            tension:      0,
+            order:        20,
+            isBuyingPower: true,
+        };
+        if (stackPrefix) ds.stack = stackPrefix + i;   // keep each off the bar stack
+        return ds;
     });
 }
 
@@ -197,21 +261,39 @@ function updateSimulation() {
     const rAge    = currentAge + w;
     const finalSim = simulateLife(currentAge, stopAge, principal, rAcc, rDec, rAge, stopAge);
 
-    computedPeakCache     = finalSim.peakNw;
-    computedMinFlowCache  = finalSim.minFlow;
-    computedPeakFlowCache = finalSim.peakFlow;
+    const nominal = displayMode === 'nominal';
+    const infl    = (parseFloat(boxInflation.value) || 0) / 100;
+
+    // Nest egg at the moment of retirement (real). The right-axis net-worth line
+    // peaks here and then declines in real terms; in nominal terms it keeps rising
+    // afterward even as buying power falls, so we report the retirement value.
+    let realNestEgg = finalSim.peakNw;
+    {
+        let best = null;
+        finalSim.nwData.forEach(p => { if (p.y != null && p.x <= rAge + 1e-9 && (!best || p.x > best.x)) best = p; });
+        if (best) realNestEgg = best.y;
+    }
 
     // Metrics
     mWorkYears.innerText = w.toFixed(1) + ' Years';
     mRetireAge.innerText = (w >= (stopAge - currentAge) && resAtH.finalBalance < floor)
         ? 'Never' : 'Age ' + rAge.toFixed(1);
-    mPeakNw.innerText    = formatCurrency(finalSim.peakNw);
+    if (nominal) {
+        mPeakNwLabel.innerText = 'Nest Egg at Retirement';
+        mPeakNw.innerText      = formatCurrency(realNestEgg * Math.pow(1 + infl, rAge - currentAge));
+        mPeakNwRef.innerText   = '≈ ' + formatCurrency(realNestEgg) + " in today's $";
+    } else {
+        mPeakNwLabel.innerText = 'Peak Nest Egg Needed';
+        mPeakNw.innerText      = formatCurrency(finalSim.peakNw);
+        mPeakNwRef.innerText   = '';
+    }
 
     // Dynamic labels
     document.getElementById('label-principal').innerText    = 'Starting Balance: '              + formatCurrency(principal);
     document.getElementById('label-growth').innerText       = 'Real Growth Rate during accumulation: ' + (rAcc * 100).toFixed(1) + '%';
     document.getElementById('label-growth-dec').innerText   = 'Real Growth Rate (Decumulation): '      + (rDec * 100).toFixed(1) + '%';
     document.getElementById('label-legacy-floor').innerText = 'Desired Legacy Floor: '          + formatCurrency(floor);
+    document.getElementById('label-inflation').innerText    = 'Assumed Inflation Rate: '        + (infl * 100).toFixed(1) + '%';
 
     // View clamping
     const axisMin          = boxAxisMin.value   !== "" ? parseInt(boxAxisMin.value)   : currentAge;
@@ -222,16 +304,65 @@ function updateSimulation() {
 
     const viewSim = simulateLife(currentAge, Math.max(stopAge, axisMax), principal, rAcc, rDec, rAge, stopAge);
 
-    chartInstance.data.labels                           = viewSim.labels;
-    chartInstance.data.datasets[0].data                 = viewSim.inflowData;
-    chartInstance.data.datasets[1].data                 = viewSim.outflowData;
-    chartInstance.data.datasets[2].data                 = viewSim.growthData;
-    chartInstance.data.datasets[3].data                 = viewSim.nwData;
-    chartInstance.options.scales.x.min                  = axisMin;
-    chartInstance.options.scales.x.max                  = axisMax;
-    chartInstance.options.scales.y.min                  = yLeftMinCon;
-    chartInstance.options.scales.y.max                  = yLeftMaxCon;
-    chartInstance.options.scales.yNetWorth.max           = yMaxConstraint;
+    // Plotted series — inflated to future dollars in nominal mode (real value kept
+    // as yReal for tooltips). Track the nominal flow range / net-worth peak so the
+    // axes can be scaled to the displayed data.
+    let inflow = viewSim.inflowData, outflow = viewSim.outflowData, growth = viewSim.growthData, nw = viewSim.nwData;
+    let nomPeakFlow = 0, nomMinFlow = 0, nomNwPeak = 0;
+    if (nominal) {
+        inflow  = scaleNominal(viewSim.inflowData,  currentAge, infl);
+        outflow = scaleNominal(viewSim.outflowData, currentAge, infl);
+        growth  = scaleNominal(viewSim.growthData,  currentAge, infl);
+        nw      = scaleNominal(viewSim.nwData,      currentAge, infl);
+        for (let i = 0; i < inflow.length; i++) {
+            const pos = Math.max(0, inflow[i].y || 0) + Math.max(0, growth[i].y || 0);
+            const neg = Math.min(0, outflow[i].y || 0);
+            if (pos > nomPeakFlow) nomPeakFlow = pos;
+            if (neg < nomMinFlow)  nomMinFlow  = neg;
+        }
+        nw.forEach(p => { if (p.y != null && p.y > nomNwPeak) nomNwPeak = p.y; });
+    }
+
+    // Lock-button caches reflect the displayed scale.
+    computedPeakCache     = nominal ? nomNwPeak   : finalSim.peakNw;
+    computedPeakFlowCache = nominal ? nomPeakFlow : finalSim.peakFlow;
+    computedMinFlowCache  = nominal ? nomMinFlow  : finalSim.minFlow;
+
+    // Equal-buying-power curves (nominal mode only) on the net-worth axis. The
+    // cash-flow bars already represent constant real flows, so they are their own
+    // buying-power reference and need no separate curves.
+    const showBp = nominal && chkBuyingPower.checked;
+    let bpDatasets = [];
+    if (showBp && finalSim.peakNw > 0) {
+        const lo = Math.floor(axisMin), hi = Math.ceil(axisMax);
+        const stepN = snapCeiling(finalSim.peakNw) / 4;
+        const nwLevels = [1, 2, 3, 4].map(k => k * stepN);
+        bpDatasets = buyingPowerFamily(nwLevels, 'yNetWorth', currentAge, infl, lo, hi, 'rgba(234, 179, 8, 0.55)', null);
+    }
+
+    chartInstance.data.labels           = viewSim.labels;
+    chartInstance.data.datasets[0].data = inflow;
+    chartInstance.data.datasets[1].data = outflow;
+    chartInstance.data.datasets[2].data = growth;
+    chartInstance.data.datasets[3].data = nw;
+    chartInstance.data.datasets.splice(4);                 // drop any prior buying-power lines
+    bpDatasets.forEach(ds => chartInstance.data.datasets.push(ds));
+
+    chartInstance.options.scales.x.min = axisMin;
+    chartInstance.options.scales.x.max = axisMax;
+
+    if (nominal) {
+        const flowMax = yLeftMaxCon !== undefined ? yLeftMaxCon : snapFlowCeiling(nomPeakFlow);
+        const flowMin = yLeftMinCon !== undefined ? yLeftMinCon : (nomMinFlow < 0 ? snapFloor(nomMinFlow) : 0);
+        const nwMax   = yMaxConstraint !== undefined ? yMaxConstraint : (nomNwPeak > 0 ? snapCeiling(nomNwPeak) : undefined);
+        chartInstance.options.scales.y.min         = flowMin;
+        chartInstance.options.scales.y.max         = flowMax;
+        chartInstance.options.scales.yNetWorth.max = nwMax;
+    } else {
+        chartInstance.options.scales.y.min         = yLeftMinCon;
+        chartInstance.options.scales.y.max         = yLeftMaxCon;
+        chartInstance.options.scales.yNetWorth.max = yMaxConstraint;
+    }
     chartInstance.update('none');
 
     updateButtonStates();
@@ -484,6 +615,26 @@ addEventBtn.addEventListener('click', () => {
     addMilestone(last.age + 10, last.income, last.savings, last.spending);
 });
 
+// ── Display Mode (Real / Nominal) ─────────────────────────────
+function setDisplayMode(mode) {
+    displayMode = (mode === 'nominal') ? 'nominal' : 'real';
+    displayToggle.querySelectorAll('.seg-btn').forEach(btn =>
+        btn.classList.toggle('active', btn.dataset.mode === displayMode));
+    inflationGroup.style.display = displayMode === 'nominal' ? 'flex' : 'none';
+}
+
+displayToggle.querySelectorAll('.seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        setDisplayMode(btn.dataset.mode);
+        updateSimulation();
+    });
+});
+
+chkBuyingPower.addEventListener('change', updateSimulation);
+linkInputs(inputInflation, boxInflation, (val) => {
+    document.getElementById('label-inflation').innerText = 'Assumed Inflation Rate: ' + parseFloat(val).toFixed(1) + '%';
+});
+
 // ── URL Persistence ───────────────────────────────────────────
 function updateURLParams() {
     const params = new URLSearchParams();
@@ -494,6 +645,9 @@ function updateURLParams() {
     params.set('growthDec',   boxGrowthDec.value);
     params.set('legacyFloor', boxLegacyFloor.value);
     params.set('linked',      ratesLinked);
+    params.set('mode',        displayMode);
+    params.set('inflation',   boxInflation.value);
+    params.set('bp',          chkBuyingPower.checked ? '1' : '0');
     params.set('ss',          JSON.stringify(ssEvents.map(e => [e.amt, e.age])));
     params.set('wf',          JSON.stringify(windfallEvents.map(e => [e.amt, e.age])));
     params.set('m',           JSON.stringify(milestones.map(m => [m.age, m.income, m.savings, m.spending])));
@@ -513,6 +667,9 @@ function loadParamsFromURL() {
     if (p.has('growth'))      boxGrowth.value      = inputGrowth.value       = p.get('growth');
     if (p.has('growthDec'))   boxGrowthDec.value   = inputGrowthDec.value    = p.get('growthDec');
     if (p.has('legacyFloor')) boxLegacyFloor.value = sliderLegacyFloor.value = p.get('legacyFloor');
+    if (p.has('inflation'))   boxInflation.value   = inputInflation.value    = p.get('inflation');
+    if (p.has('bp'))          chkBuyingPower.checked = p.get('bp') !== '0';
+    if (p.has('mode'))        setDisplayMode(p.get('mode'));
     if (p.has('xMin'))        boxAxisMin.value  = p.get('xMin');
     if (p.has('xMax'))        boxAxisMax.value  = p.get('xMax');
     if (p.has('yMax'))        boxYMax.value     = p.get('yMax');
@@ -576,6 +733,7 @@ document.getElementById('label-principal').innerText    = 'Starting Balance: '  
 document.getElementById('label-growth').innerText       = 'Real Growth Rate during accumulation: ' + parseFloat(boxGrowth.value).toFixed(1) + '%';
 document.getElementById('label-growth-dec').innerText   = 'Real Growth Rate (Decumulation): '      + parseFloat(boxGrowthDec.value).toFixed(1) + '%';
 document.getElementById('label-legacy-floor').innerText = 'Desired Legacy Floor: '          + formatCurrency(boxLegacyFloor.value);
+document.getElementById('label-inflation').innerText    = 'Assumed Inflation Rate: '        + parseFloat(boxInflation.value).toFixed(1) + '%';
 
 if (milestones.length === 0) {
     addMilestone(30, 60000, 15000, 45000);

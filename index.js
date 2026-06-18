@@ -164,31 +164,41 @@ function updateVisualization() {
     // mode inflates each point for display while retaining the real value (yReal).
     let accData = results.accumulationData.map(pt => ({ ...pt, yReal: pt.y }));
     let depData = results.depletionData.map(pt => ({ ...pt, yReal: pt.y }));
-    let displayPeak = results.peakNetWorth;
-    let peakRealRef = null;
 
+    // Peak of the actually-plotted series — used only for axis scaling. In nominal
+    // mode the curve keeps rising after retirement (inflation outpaces the real
+    // drawdown), so this is NOT the headline figure; see nest egg at retirement below.
+    let chartPeak = results.peakNetWorth;
     if (nominal) {
         accData = toNominalSeries(results.accumulationData, currentAge, infl);
         depData = toNominalSeries(results.depletionData, currentAge, infl);
-        // The nominal peak can occur later than the real peak (inflation grows
-        // monotonically), so take the max over the inflated points directly.
-        displayPeak = 0;
-        accData.concat(depData).forEach(pt => {
-            if (pt.y !== null && pt.y > displayPeak) { displayPeak = pt.y; peakRealRef = pt.yReal; }
-        });
+        chartPeak = 0;
+        accData.concat(depData).forEach(pt => { if (pt.y !== null && pt.y > chartPeak) chartPeak = pt.y; });
     }
+    computedPeakCache = chartPeak;
 
-    computedPeakCache   = displayPeak;
+    // Headline metric: the nest egg at the moment of retirement. Real net worth
+    // peaks here and then declines through retirement; the nominal figure, however,
+    // keeps climbing afterward even as buying power erodes — so reporting the later
+    // nominal high would be misleading. The first depletion point sits exactly at
+    // the retirement age and holds the real nest egg there.
+    const retPoint    = results.depletionData.length ? results.depletionData[0] : null;
+    const realNestEgg = retPoint ? retPoint.y : results.peakNetWorth;
 
     mWorkYears.innerText = results.workingYears.toFixed(1) + ' Years';
     mRetireAge.innerText = (results.workingYears >= (stopAge - currentAge) && results.finalBalanceAtMaxWork < floor)
         ? 'Never'
         : 'Age ' + results.retirementAge.toFixed(1);
-    mPeakNwLabel.innerText = nominal ? 'Peak Nest Egg (Future $)' : 'Peak Nest Egg Needed';
-    mPeakNw.innerText   = formatCurrency(displayPeak);
-    mPeakNwRef.innerText = (nominal && peakRealRef !== null)
-        ? '≈ ' + formatCurrency(peakRealRef) + " in today's $"
-        : '';
+
+    if (nominal) {
+        mPeakNwLabel.innerText = 'Nest Egg at Retirement';
+        mPeakNw.innerText      = formatCurrency(realNestEgg * Math.pow(1 + infl, results.retirementAge - currentAge));
+        mPeakNwRef.innerText   = '≈ ' + formatCurrency(realNestEgg) + " in today's $";
+    } else {
+        mPeakNwLabel.innerText = 'Peak Nest Egg Needed';
+        mPeakNw.innerText      = formatCurrency(results.peakNetWorth);
+        mPeakNwRef.innerText   = '';
+    }
 
     const showBp = nominal && chkBuyingPower.checked;
     const bpDatasets = showBp
@@ -199,8 +209,8 @@ function updateVisualization() {
     // y-axis to the nominal peak (unless the user has locked a value). The curves
     // are then clipped at the top edge and behave like curved gridlines.
     let yMaxConstraint = boxYMax.value !== "" ? parseFloat(boxYMax.value) : undefined;
-    if (nominal && yMaxConstraint === undefined && displayPeak > 0) {
-        yMaxConstraint = snapCeiling(displayPeak);
+    if (nominal && yMaxConstraint === undefined && chartPeak > 0) {
+        yMaxConstraint = snapCeiling(chartPeak);
     }
 
     if (chartInstance) {

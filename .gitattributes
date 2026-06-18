@@ -1,0 +1,13 @@
+# Normalize line endings to LF in the repo and on checkout.
+# Stops the CRLF/LF churn that was making untouched files show as modified.
+* text=auto eol=lf
+
+# Binary file types: never normalize or text-diff these.
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.woff  binary
+*.woff2 binary
