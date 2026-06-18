@@ -60,6 +60,7 @@ let ratesLinked        = false;
 let ssEvents           = [];
 let windfallEvents     = [];
 let displayMode        = 'real';   // 'real' (today's $) or 'nominal' (future $)
+let lockedBpLevels     = null;     // frozen buying-power levels while an axis is locked
 
 // ── Helpers ──────────────────────────────────────────
 // formatCurrency, newId, snapCeiling → common.js (loaded before this script)
@@ -90,12 +91,10 @@ function toNominalSeries(series, currentAge, infl) {
 // in real terms, so it reads as constant purchasing power; where it crosses the
 // nominal net-worth curve, the two have equal buying power. Levels are evenly
 // spaced up to a nice ceiling above the real peak, so one sits near the peak.
-function buildBuyingPowerDatasets(realPeak, currentAge, infl, axisMin, axisMax) {
-    if (!(realPeak > 0)) return [];
-    const ceil = snapCeiling(realPeak);
-    const step = ceil / 4;
+function buildBuyingPowerDatasets(levels, currentAge, infl, axisMin, axisMax) {
+    if (!levels || !levels.length) return [];
     const lo = Math.floor(axisMin), hi = Math.ceil(axisMax);
-    return [step, 2 * step, 3 * step, 4 * step].map(level => {
+    return levels.map(level => {
         const data = [];
         for (let age = lo; age <= hi; age++) {
             data.push({ x: age, y: level * Math.pow(1 + infl, age - currentAge), yReal: level });
@@ -200,10 +199,22 @@ function updateVisualization() {
         mPeakNwRef.innerText   = '';
     }
 
+    // Buying-power levels: recompute from the current peak while unlocked (and cache
+    // them); once any axis is locked, reuse the frozen levels so the curves stay put
+    // for scale-locked comparisons.
+    const anyAxisLocked = boxAxisMin.value !== "" || boxAxisMax.value !== "" || boxYMax.value !== "";
     const showBp = nominal && chkBuyingPower.checked;
-    const bpDatasets = showBp
-        ? buildBuyingPowerDatasets(results.peakNetWorth, currentAge, infl, axisMin, axisMax)
-        : [];
+    let bpLevels = [];
+    if (showBp) {
+        if (anyAxisLocked && lockedBpLevels) {
+            bpLevels = lockedBpLevels;
+        } else if (results.peakNetWorth > 0) {
+            const step = snapCeiling(results.peakNetWorth) / 4;
+            bpLevels = [step, 2 * step, 3 * step, 4 * step];
+            if (!anyAxisLocked) lockedBpLevels = bpLevels;
+        }
+    }
+    const bpDatasets = buildBuyingPowerDatasets(bpLevels, currentAge, infl, axisMin, axisMax);
 
     // Buying-power curves grow past the nominal peak, so in nominal mode clip the
     // y-axis to the nominal peak (unless the user has locked a value). The curves

@@ -63,6 +63,7 @@ let computedMinFlowCache  = 0;
 let computedPeakFlowCache = 0;
 let computedPeakCache     = 0;
 let displayMode           = 'real';   // 'real' (today's $) or 'nominal' (future $)
+let lockedBpLevels        = null;     // frozen buying-power levels while an axis is locked
 
 let milestones    = [];
 let ssEvents      = [];
@@ -153,10 +154,7 @@ function initChart() {
             },
             plugins: {
                 legend:  {
-                    labels: {
-                        color:  '#f8fafc',
-                        filter: (item, data) => !data.datasets[item.datasetIndex].isBuyingPower,
-                    },
+                    labels: { color: '#f8fafc' },
                 },
                 tooltip: {
                     mode:      'nearest',
@@ -208,7 +206,7 @@ function buyingPowerFamily(levels, axisID, currentAge, infl, lo, hi, color, stac
             data.push({ x: age, y: level * Math.pow(1 + infl, age - currentAge), yReal: level });
         }
         const ds = {
-            label:        formatCurrency(level) + " (today's $)",
+            label:        'Buying power: ' + formatCurrency(level) + " (today's $)",
             data,
             type:         'line',
             yAxisID:      axisID,
@@ -331,13 +329,26 @@ function updateSimulation() {
     // Equal-buying-power curves (nominal mode only) on the net-worth axis. The
     // cash-flow bars already represent constant real flows, so they are their own
     // buying-power reference and need no separate curves.
+    // Buying-power levels: recompute from the current peak while unlocked (and cache
+    // them); once any axis is locked, reuse the frozen levels so the curves stay put
+    // for scale-locked comparisons.
+    const anyAxisLocked = boxAxisMin.value !== "" || boxAxisMax.value !== "" || boxYMax.value !== ""
+                       || boxYLeftMin.value !== "" || boxYLeftMax.value !== "";
     const showBp = nominal && chkBuyingPower.checked;
     let bpDatasets = [];
-    if (showBp && finalSim.peakNw > 0) {
+    if (showBp) {
         const lo = Math.floor(axisMin), hi = Math.ceil(axisMax);
-        const stepN = snapCeiling(finalSim.peakNw) / 4;
-        const nwLevels = [1, 2, 3, 4].map(k => k * stepN);
-        bpDatasets = buyingPowerFamily(nwLevels, 'yNetWorth', currentAge, infl, lo, hi, 'rgba(234, 179, 8, 0.55)', null);
+        let nwLevels = [];
+        if (anyAxisLocked && lockedBpLevels) {
+            nwLevels = lockedBpLevels;
+        } else if (finalSim.peakNw > 0) {
+            const stepN = snapCeiling(finalSim.peakNw) / 4;
+            nwLevels = [1, 2, 3, 4].map(k => k * stepN);
+            if (!anyAxisLocked) lockedBpLevels = nwLevels;
+        }
+        if (nwLevels.length) {
+            bpDatasets = buyingPowerFamily(nwLevels, 'yNetWorth', currentAge, infl, lo, hi, 'rgba(234, 179, 8, 0.55)', null);
+        }
     }
 
     chartInstance.data.labels           = viewSim.labels;
