@@ -47,6 +47,32 @@
         <div class="controls">
 
             <div class="control-group">
+                <label class="control-label">Dollar Display</label>
+                <div class="segmented-toggle" id="display-mode-toggle">
+                    <button type="button" class="seg-btn active" data-mode="real">Today's $ (Real)</button>
+                    <button type="button" class="seg-btn" data-mode="nominal">Future $ (Nominal)</button>
+                </div>
+            </div>
+
+            <div class="control-group" id="inflation-group" style="display:none;">
+                <label class="control-label" id="label-inflation">Assumed Inflation Rate: 3.0%</label>
+                <div class="interactive-row">
+                    <input type="range"  id="input-inflation" min="0" max="8" step="0.1" value="3.0">
+                    <input type="number" id="box-inflation"   class="manual-box" min="0" max="20" step="0.1" value="3.0">
+                </div>
+                <p class="control-note">
+                    Nominal (future $) applies only to the <strong>results and chart</strong>. All inputs —
+                    starting balance, milestone income/spending/savings, Social Security, and windfalls —
+                    are still entered in <strong>today's dollars</strong>. The model's returns stay real;
+                    in nominal mode the asset-growth bars also include the inflationary rise of the balance.
+                </p>
+                <label class="check-row">
+                    <input type="checkbox" id="chk-buying-power" checked>
+                    <span>Show equal-buying-power curves (net worth)</span>
+                </label>
+            </div>
+
+            <div class="control-group">
                 <label class="control-label">Current Age</label>
                 <div class="interactive-row">
                     <input type="range"  id="slider-start-age" min="0" max="100" value="30">
