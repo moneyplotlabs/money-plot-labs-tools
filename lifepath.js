@@ -200,9 +200,12 @@ function scaleNominal(series, currentAge, infl) {
 // One family of dashed equal-buying-power curves: each constant today's-dollar
 // level shown as it inflates into future dollars across the visible age range.
 function buyingPowerFamily(levels, axisID, currentAge, infl, lo, hi, color, stackPrefix) {
+    // Start at the current age ("today", factor 1) — no today's-dollar reference
+    // exists before now, so don't draw left of the start age even on a locked chart.
+    const start = Math.max(lo, currentAge);
     return levels.map((level, i) => {
         const data = [];
-        for (let age = lo; age <= hi; age++) {
+        for (let age = start; age <= hi; age++) {
             data.push({ x: age, y: level * Math.pow(1 + infl, age - currentAge), yReal: level });
         }
         const ds = {

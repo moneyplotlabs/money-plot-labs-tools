@@ -93,7 +93,9 @@ function toNominalSeries(series, currentAge, infl) {
 // spaced up to a nice ceiling above the real peak, so one sits near the peak.
 function buildBuyingPowerDatasets(levels, currentAge, infl, axisMin, axisMax) {
     if (!levels || !levels.length) return [];
-    const lo = Math.floor(axisMin), hi = Math.ceil(axisMax);
+    // Start at the current age ("today", factor 1) — no today's-dollar reference
+    // exists before now, so don't draw left of the start age even on a locked chart.
+    const lo = Math.max(Math.floor(axisMin), currentAge), hi = Math.ceil(axisMax);
     return levels.map(level => {
         const data = [];
         for (let age = lo; age <= hi; age++) {

@@ -93,6 +93,7 @@ let ratesLinked           = false;
 let computedPeakCache     = 0;
 let retireMode            = 'age';   // 'age' | 'nw'
 let displayMode           = 'real';  // 'real' (today's $) | 'nominal' (future $)
+let lockedBpLevels        = null;    // frozen buying-power levels while an axis is locked
 
 let milestones     = [];
 let ssEvents       = [];
@@ -294,10 +295,7 @@ function initChart() {
             },
             plugins: {
                 legend: {
-                    labels: {
-                        color:  '#f8fafc',
-                        filter: (item, data) => !data.datasets[item.datasetIndex].isBuyingPower,
-                    },
+                    labels: { color: '#f8fafc' },
                     onClick: (e, legendItem, legend) => {
                         const idx = legendItem.datasetIndex;
                         const ds  = legend.chart.data.datasets[idx];
@@ -312,8 +310,12 @@ function initChart() {
                             legend.chart.data.datasets[6].fill = ds.hidden ? false : '+1';
                         }
 
+                        // Toggling a net-worth line redistributes the buying-power curves
+                        // and rescales the net-worth axis to the now-visible lines.
+                        if (!ds.isBuyingPower) rescaleNetWorthOverlays();
                         legend.chart.update('none');
                     },
+
                 },
                 tooltip: {
                     mode:      'index',
@@ -355,6 +357,78 @@ function simulateDeterministicBars(startAge, endAge, principal, rAge) {
 }
 
 // percentile() → common.js (loaded before this script)
+
+// ── Net-worth overlays (buying-power curves + left-axis scale) ──
+// Rebuilds the equal-buying-power curves and rescales the net-worth (left) axis to
+// the CURRENTLY VISIBLE net-worth lines (percentile fan idx 3–7 + downside run idx 8).
+// It reads the display data already on the chart — each point carries its real value
+// as yReal — so it can run on a legend show/hide WITHOUT re-running the Monte Carlo
+// (which would re-randomise the fan). Levels recompute from the visible peak while
+// unlocked (and are cached); once any axis is locked the frozen levels are reused.
+function rescaleNetWorthOverlays() {
+    if (!chartInstance) return;
+    const ds         = chartInstance.data.datasets;
+    const nominal    = displayMode === 'nominal';
+    const currentAge = parseInt(boxStartAge.value);
+    const stopAge    = parseInt(boxEndAge.value);
+    const infl       = (parseFloat(boxInflation.value) || 0) / 100;
+    const axisMin    = boxAxisMin.value !== "" ? parseInt(boxAxisMin.value) : currentAge;
+    const axisMax    = boxAxisMax.value !== "" ? parseInt(boxAxisMax.value) : stopAge + 1;
+    const yMaxCon    = boxYMax.value    !== "" ? parseFloat(boxYMax.value)  : undefined;
+
+    // Peaks across the currently-visible net-worth lines (nominal y for axis, real
+    // yReal for buying-power level anchoring).
+    let visNomPeak = 0, visRealPeak = 0;
+    for (let i = 3; i <= 8; i++) {
+        if (!ds[i] || ds[i].hidden) continue;
+        (ds[i].data || []).forEach(p => {
+            if (!p || p.y == null) return;
+            if (p.y > visNomPeak) visNomPeak = p.y;
+            const r = (p.yReal != null) ? p.yReal : p.y;
+            if (r > visRealPeak) visRealPeak = r;
+        });
+    }
+
+    ds.splice(9);   // drop existing buying-power curves
+
+    if (nominal && chkBuyingPower.checked) {
+        const anyAxisLocked = boxAxisMin.value !== "" || boxAxisMax.value !== "" || boxYMax.value !== ""
+                           || boxYLeftMin.value !== "" || boxYLeftMax.value !== "";
+        let nwLevels = [];
+        if (anyAxisLocked) {
+            // Locked → frozen: reuse the cached levels. If nothing was cached yet
+            // (e.g. locked before the curves first drew), capture them once and keep
+            // them — never recompute while locked, so toggling lines can't move them.
+            if (!lockedBpLevels && visRealPeak > 0) {
+                const stepN = snapCeiling(visRealPeak) / 4;
+                lockedBpLevels = [1, 2, 3, 4].map(k => k * stepN);
+            }
+            nwLevels = lockedBpLevels || [];
+        } else if (visRealPeak > 0) {
+            const stepN = snapCeiling(visRealPeak) / 4;
+            nwLevels = [1, 2, 3, 4].map(k => k * stepN);
+            lockedBpLevels = nwLevels;   // keep cache current while unlocked
+        }
+        // Start the curves at the current age ("today", where the factor is 1) — there
+        // is no today's-dollar reference for ages before now, so don't draw to the left.
+        const lo = Math.max(Math.floor(axisMin), currentAge), hi = Math.ceil(axisMax);
+        nwLevels.forEach(level => {
+            const data = [];
+            for (let age = lo; age <= hi; age++) data.push({ x: age, y: level * Math.pow(1 + infl, age - currentAge), yReal: level });
+            ds.push({
+                type: 'line', label: 'Buying power: ' + formatCurrency(level) + " (today's $)", data, yAxisID: 'yNetWorth',
+                borderColor: 'rgba(234, 179, 8, 0.55)', borderDash: [4, 4], borderWidth: 1,
+                pointRadius: 0, fill: false, tension: 0, spanGaps: true, order: 20, isBuyingPower: true,
+            });
+        });
+        chartInstance.options.scales.yNetWorth.max =
+            yMaxCon !== undefined ? yMaxCon : (visNomPeak > 0 ? snapCeiling(visNomPeak) : undefined);
+    } else {
+        // Real mode (or curves off): Chart.js auto-scale already ignores hidden
+        // datasets, so just honour an explicit locked max if present.
+        chartInstance.options.scales.yNetWorth.max = yMaxCon;
+    }
+}
 
 // ── Simulation Entry Point ────────────────────────────────────
 function updateSimulation() {
@@ -558,10 +632,6 @@ function updateSimulation() {
     const f       = (age) => Math.pow(1 + infl, age - currentAge);   // real → nominal factor
     document.getElementById('label-inflation').innerText = 'Assumed Inflation Rate: ' + (infl * 100).toFixed(1) + '%';
 
-    // Real net-worth peak (top of the fan) — anchors buying-power levels and the
-    // real-mode axis behaviour. Computed before any nominal scaling.
-    const realPeakNw = Math.max(...nwP90.map(d => d.y));
-
     // ── View clamping ─────────────────────────────────────────
     const axisMin        = boxAxisMin.value  !== "" ? parseInt(boxAxisMin.value)    : currentAge;
     const axisMax        = boxAxisMax.value  !== "" ? parseInt(boxAxisMax.value)    : stopAge + 1;
@@ -577,7 +647,7 @@ function updateSimulation() {
     // which keeps the stacked bars consistent with the nominal net-worth lines.
     let dInflow = bars.inflowData, dOutflow = bars.outflowData, dGrowth = growthP10Data;
     let dP10 = nwP10, dP25 = nwP25, dP50 = nwP50, dP75 = nwP75, dP90 = nwP90, dScen = nwP10ScenarioData;
-    let nomPeakFlow = 0, nomMinFlow = 0, nomNwPeak = 0;
+    let nomPeakFlow = 0, nomMinFlow = 0;
 
     if (nominal) {
         const scaleLine = (arr) => arr.map(p => ({ x: p.x, y: p.y == null ? null : p.y * f(p.x), yReal: p.y }));
@@ -600,26 +670,6 @@ function updateSimulation() {
             if (posTop > nomPeakFlow) nomPeakFlow = posTop;
             if (negBot < nomMinFlow)  nomMinFlow  = negBot;
         }
-        dP90.forEach(p => { if (p.y != null && p.y > nomNwPeak) nomNwPeak = p.y; });
-        dScen.forEach(p => { if (p.y != null && p.y > nomNwPeak) nomNwPeak = p.y; });
-    }
-
-    // ── Equal-buying-power curves (net worth, nominal mode only) ──
-    const showBp = nominal && chkBuyingPower.checked;
-    let bpDatasets = [];
-    if (showBp && realPeakNw > 0) {
-        const lo = Math.floor(axisMin), hi = Math.ceil(axisMax);
-        const stepN = snapCeiling(realPeakNw) / 4;
-        [1, 2, 3, 4].forEach(k => {
-            const level = k * stepN;
-            const data = [];
-            for (let age = lo; age <= hi; age++) data.push({ x: age, y: level * f(age), yReal: level });
-            bpDatasets.push({
-                type: 'line', label: formatCurrency(level) + " (today's $)", data, yAxisID: 'yNetWorth',
-                borderColor: 'rgba(234, 179, 8, 0.55)', borderDash: [4, 4], borderWidth: 1,
-                pointRadius: 0, fill: false, tension: 0, spanGaps: true, order: 20, isBuyingPower: true,
-            });
-        });
     }
 
     // ── Push to chart ─────────────────────────────────────────
@@ -634,24 +684,22 @@ function updateSimulation() {
     chartInstance.data.datasets[6].data        = dP75;
     chartInstance.data.datasets[7].data        = dP90;
     chartInstance.data.datasets[8].data        = dScen;
-    chartInstance.data.datasets.splice(9);                       // drop any prior buying-power lines
-    bpDatasets.forEach(ds => chartInstance.data.datasets.push(ds));
     chartInstance.options.scales.x.type        = 'linear';
     chartInstance.options.scales.x.min         = axisMin;
     chartInstance.options.scales.x.max         = axisMax;
 
     if (nominal) {
-        const flowMax = yLeftMaxCon !== undefined ? yLeftMaxCon : snapFlowCeiling(nomPeakFlow);
-        const flowMin = yLeftMinCon !== undefined ? yLeftMinCon : (nomMinFlow < 0 ? snapFloor(nomMinFlow) : 0);
-        const nwMax   = yMaxConstraint !== undefined ? yMaxConstraint : (nomNwPeak > 0 ? snapCeiling(nomNwPeak) : undefined);
-        chartInstance.options.scales.y.min         = flowMin;
-        chartInstance.options.scales.y.max         = flowMax;
-        chartInstance.options.scales.yNetWorth.max = nwMax;
+        chartInstance.options.scales.y.min = yLeftMinCon !== undefined ? yLeftMinCon : (nomMinFlow < 0 ? snapFloor(nomMinFlow) : 0);
+        chartInstance.options.scales.y.max = yLeftMaxCon !== undefined ? yLeftMaxCon : snapFlowCeiling(nomPeakFlow);
     } else {
-        chartInstance.options.scales.y.min         = yLeftMinCon;
-        chartInstance.options.scales.y.max         = yLeftMaxCon;
-        chartInstance.options.scales.yNetWorth.max = yMaxConstraint;
+        chartInstance.options.scales.y.min = yLeftMinCon;
+        chartInstance.options.scales.y.max = yLeftMaxCon;
     }
+
+    // Buying-power curves + net-worth (left) axis follow the currently VISIBLE NW
+    // lines, so hiding p75/p90 keeps the curves/scale tied to the shown fan.
+    rescaleNetWorthOverlays();
+
     chartInstance.update('none');
 
     updateButtonStates();
