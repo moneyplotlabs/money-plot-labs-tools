@@ -27,6 +27,31 @@
         return milestones.filter(m => m.age <= age).pop() || milestones[0];
     }
 
+    // Marks a recurring-expense endpoint anchored to retirement instead of an age.
+    const RETIREMENT = 'R';
+
+    // Recurring expenses layer extra annual spending on top of the active milestone.
+    // Each row is { amt, start, end }: start/end are ages, RETIREMENT, or null for an
+    // open end (from the start / to the end of the plan). A row is active in year t
+    // when start ≤ t < end; amt may be negative (a spending cut).
+    //
+    // Returns the annual amount that applies in year t while still working and once
+    // retired. Retirement is exactly the boundary between those two phases, so a row
+    // starting at retirement only ever applies to retired time and one ending at
+    // retirement only to working time. Neither rate depends on the retirement age
+    // itself, and the transition year prorates them with the same work / retire
+    // fractions as every other flow.
+    function expenseRates(t, expenses) {
+        let work = 0, retired = 0;
+        for (const e of expenses) {
+            if (typeof e.start === 'number' && t <  e.start) continue;   // not started yet
+            if (typeof e.end   === 'number' && t >= e.end)   continue;   // already over
+            if (e.start !== RETIREMENT) work    += e.amt;
+            if (e.end   !== RETIREMENT) retired += e.amt;
+        }
+        return { work, retired };
+    }
+
     // ── Tool 1: Macro Sandbox — deterministic closed-form timeline ──
     // ctx = { floor, ss: [{age, amt}], windfall: [{age, amt}] }
     function macroTimeline(currentAge, stopAge, a0, s, c, rAcc, rDec, ctx) {
@@ -132,11 +157,12 @@
     }
 
     // ── Tool 2: Cash Flow Planner — year-by-year deterministic sim ──
-    // ctx = { milestones, ss, windfall }
+    // ctx = { milestones, ss, windfall, expenses }
     function simulateLife(startAge, endAge, principal, rAcc, rDec, rAge, planningEndAge, ctx) {
         const milestones     = (ctx && ctx.milestones) || [];
         const ssEvents       = (ctx && ctx.ss)         || [];
         const windfallEvents = (ctx && ctx.windfall)   || [];
+        const expenses       = (ctx && ctx.expenses)   || [];
 
         const labels      = [];
         const inflowData  = [];
@@ -168,15 +194,18 @@
             const m        = getMilestone(t, milestones);
             const passive  = ssEvents.reduce((acc, ss) => acc + (t >= ss.age ? ss.amt : 0), 0);
             const windfall = windfallEvents.reduce((acc, wf) => t === wf.age ? acc + wf.amt : acc, 0);
+            const ex       = expenseRates(t, expenses);
+            const savings  = m.savings  - ex.work;      // while working: comes out of savings (income is fixed)
+            const spending = m.spending + ex.retired;   // once retired: added to withdrawals
 
             let growth = 0;
 
             if (t < k) {
                 // Full working year
                 inflowData.push({ x: t, y: m.income + passive + windfall });
-                outflowData.push({ x: t, y: -m.spending });
-                balance  = balance * (1 + rAcc) + m.savings + passive + windfall;
-                growth   = balance - startBal - m.savings - passive - windfall;
+                outflowData.push({ x: t, y: -(m.spending + ex.work) });
+                balance  = balance * (1 + rAcc) + savings + passive + windfall;
+                growth   = balance - startBal - savings - passive - windfall;
                 peakNw   = Math.max(peakNw, balance);
 
             } else if (t === k) {
@@ -185,26 +214,26 @@
                 const retireFrac = 1 - delta;
 
                 inflowData.push({ x: t, y: (m.income * workFrac) + passive + windfall });
-                outflowData.push({ x: t, y: -m.spending });
+                outflowData.push({ x: t, y: -(m.spending + ex.work * workFrac + ex.retired * retireFrac) });
 
                 const balanceMid = balance * Math.pow(1 + rAcc, workFrac)
-                    + (m.savings * workFrac) + (passive * workFrac) + (windfall * workFrac);
+                    + (savings * workFrac) + (passive * workFrac) + (windfall * workFrac);
 
                 if (delta > 0 && t <= planningEndAge) {
                     nwData.push({ x: t + delta, y: balanceMid });
                 }
 
-                balance = (balanceMid - m.spending * retireFrac + (passive * retireFrac) + (windfall * retireFrac))
+                balance = (balanceMid - spending * retireFrac + (passive * retireFrac) + (windfall * retireFrac))
                     * Math.pow(1 + rDec, retireFrac);
-                growth  = balance - startBal - (m.savings * workFrac) + (m.spending * retireFrac) - passive - windfall;
+                growth  = balance - startBal - (savings * workFrac) + (spending * retireFrac) - passive - windfall;
                 peakNw  = Math.max(peakNw, balanceMid, balance);
 
             } else {
                 // Full retirement year
                 inflowData.push({ x: t, y: passive + windfall });
-                outflowData.push({ x: t, y: -m.spending });
-                balance  = (balance - m.spending + passive + windfall) * (1 + rDec);
-                growth   = balance - startBal + m.spending - passive - windfall;
+                outflowData.push({ x: t, y: -spending });
+                balance  = (balance - spending + passive + windfall) * (1 + rDec);
+                growth   = balance - startBal + spending - passive - windfall;
                 peakNw   = Math.max(peakNw, balance);
             }
 
@@ -359,11 +388,12 @@
     }
 
     // Does a deterministic chronological accumulation reach the target within the
-    // supplied (real-data-only) return series? ctx = { milestones, ss, windfall }.
+    // supplied (real-data-only) return series? ctx = { milestones, ss, windfall, expenses }.
     function accReachesTarget(currentAge, principal, nwTarget, ctx, accReal) {
         const milestones = (ctx && ctx.milestones) || [];
         const ssEvents   = (ctx && ctx.ss)         || [];
         const windfall   = (ctx && ctx.windfall)   || [];
+        const expenses   = (ctx && ctx.expenses)   || [];
         let bal = principal;
         if (bal >= nwTarget) return true;
         for (let i = 0; i < accReal.length; i++) {
@@ -371,7 +401,7 @@
             const m = getMilestone(t, milestones);
             const passive = ssEvents.reduce((a, x) => a + (t >= x.age ? x.amt : 0), 0);
             const wf      = windfall.reduce((a, x) => t === x.age ? a + x.amt : a, 0);
-            bal = bal * (1 + accReal[i]) + m.savings + passive + wf;
+            bal = bal * (1 + accReal[i]) + m.savings - expenseRates(t, expenses).work + passive + wf;
             if (bal >= nwTarget) return true;
         }
         return false;
@@ -452,11 +482,12 @@
     }
 
     // Per-age net-worth path for one return realization. Deterministic given
-    // returnsAcc / returnsDec. ctx = { milestones, ss, windfall }.
+    // returnsAcc / returnsDec. ctx = { milestones, ss, windfall, expenses }.
     function simulateNWPath(startAge, endAge, principal, rAge, nwTarget, mode, returnsAcc, returnsDec, ctx) {
         const milestones     = (ctx && ctx.milestones) || [];
         const ssEvents       = (ctx && ctx.ss)         || [];
         const windfallEvents = (ctx && ctx.windfall)   || [];
+        const expenses       = (ctx && ctx.expenses)   || [];
 
         let balance = principal;
         const nwByAge     = [];
@@ -476,12 +507,15 @@
             const m        = getMilestone(t, milestones);
             const passive  = ssEvents.reduce((acc, ss) => acc + (t >= ss.age ? ss.amt : 0), 0);
             const windfall = windfallEvents.reduce((acc, wf) => t === wf.age ? acc + wf.amt : acc, 0);
+            const ex       = expenseRates(t, expenses);
+            const savings  = m.savings  - ex.work;      // while working: comes out of savings
+            const spending = m.spending + ex.retired;   // once retired: added to withdrawals
 
             const rAcc = returnsAcc[i];
             const rDec = returnsDec[i];
 
             // Compute end-of-year accumulation balance (used for crossing interpolation)
-            const balanceAfterAcc = startBal * (1 + rAcc) + m.savings + passive + windfall;
+            const balanceAfterAcc = startBal * (1 + rAcc) + savings + passive + windfall;
 
             // NW mode: if not yet crossed, check if this year's accumulation crosses the target
             if (mode === 'nw' && !crossingFound) {
@@ -501,18 +535,18 @@
 
             if (t < k) {
                 balance = balanceAfterAcc;
-                growthByAge.push(balance - startBal - m.savings - passive - windfall);
+                growthByAge.push(balance - startBal - savings - passive - windfall);
             } else if (t === k) {
                 const workFrac   = delta;
                 const retireFrac = 1 - delta;
                 const balanceMid = startBal * Math.pow(1 + rAcc, workFrac)
-                    + (m.savings + passive + windfall) * workFrac;
-                balance = (balanceMid - m.spending * retireFrac + (passive + windfall) * retireFrac)
+                    + (savings + passive + windfall) * workFrac;
+                balance = (balanceMid - spending * retireFrac + (passive + windfall) * retireFrac)
                     * Math.pow(1 + rDec, retireFrac);
-                growthByAge.push(balance - startBal - (m.savings * workFrac) + (m.spending * retireFrac) - passive - windfall);
+                growthByAge.push(balance - startBal - (savings * workFrac) + (spending * retireFrac) - passive - windfall);
             } else {
-                balance = (startBal - m.spending + passive + windfall) * (1 + rDec);
-                growthByAge.push(balance - startBal + m.spending - passive - windfall);
+                balance = (startBal - spending + passive + windfall) * (1 + rDec);
+                growthByAge.push(balance - startBal + spending - passive - windfall);
             }
         }
         nwByAge.push(balance);
@@ -520,11 +554,12 @@
         return { nwByAge, growthByAge, finalBalance: balance, resolvedRAge };
     }
 
-    // Deterministic inflow/outflow bars (no growth rate needed). ctx = { milestones, ss, windfall }.
+    // Deterministic inflow/outflow bars (no growth rate needed). ctx = { milestones, ss, windfall, expenses }.
     function simulateDeterministicBars(startAge, endAge, principal, rAge, ctx) {
         const milestones     = (ctx && ctx.milestones) || [];
         const ssEvents       = (ctx && ctx.ss)         || [];
         const windfallEvents = (ctx && ctx.windfall)   || [];
+        const expenses       = (ctx && ctx.expenses)   || [];
 
         const labels      = [];
         const inflowData  = [];
@@ -542,16 +577,17 @@
             const m        = getMilestone(t, milestones);
             const passive  = ssEvents.reduce((acc, ss) => acc + (t >= ss.age ? ss.amt : 0), 0);
             const windfall = windfallEvents.reduce((acc, wf) => t === wf.age ? acc + wf.amt : acc, 0);
+            const ex       = expenseRates(t, expenses);
 
             if (t < k) {
                 inflowData.push({ x: t, y: m.income + passive + windfall });
-                outflowData.push({ x: t, y: -m.spending });
+                outflowData.push({ x: t, y: -(m.spending + ex.work) });
             } else if (t === k) {
                 inflowData.push({ x: t, y: (m.income * delta) + passive + windfall });
-                outflowData.push({ x: t, y: -m.spending });
+                outflowData.push({ x: t, y: -(m.spending + ex.work * delta + ex.retired * (1 - delta)) });
             } else {
                 inflowData.push({ x: t, y: passive + windfall });
-                outflowData.push({ x: t, y: -m.spending });
+                outflowData.push({ x: t, y: -(m.spending + ex.retired) });
             }
 
             peakFlow = Math.max(peakFlow, inflowData[inflowData.length - 1].y || 0);
@@ -563,6 +599,8 @@
 
     const Engine = {
         getMilestone,
+        expenseRates,
+        RETIREMENT,
         macroTimeline,
         simulateLife,
         simulateNWPath,

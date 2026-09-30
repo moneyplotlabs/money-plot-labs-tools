@@ -29,6 +29,12 @@ npm run test:coverage # run with line/branch/function coverage
     arithmetic, peak tracking.
   - `simulateNWPath` (Whitepaper 003): zero-growth ⇒ zero growth-by-year,
     net-worth-target crossing interpolation, terminal-node length.
+  - **Recurring expenses**: `expenseRates` window bounds (start inclusive, end
+    exclusive, negative amounts), retirement-anchored rows prorated in the
+    transition year, zero cost when retirement lands after the window, final
+    balance monotone in retirement age (the planner's bisection relies on it),
+    per-run retirement anchoring and delayed crossings in net-worth mode, bars
+    matching `simulateLife`, and the `accReachesTarget` cohort filter.
   - **σ → 0 limit**: a 1,000-run zero-volatility Monte Carlo collapses to a
     single deterministic path — the convergence-to-determinism result.
   - `getReturnSeries` / `getCohortOffsets` / `buildCohortRuns`: series length,

@@ -34,7 +34,7 @@ cash into investments costs a flat fee, what transfer schedule maximizes growth?
 | # | Tool | File | Model | What it answers |
 |---|------|------|-------|-----------------|
 | 1 | **Macro Sandbox** | [`index.html`](index.html) · [`index.js`](index.js) | Deterministic, closed-form | Given a fixed real growth rate, savings, and spending, how many working years until you can retire and hold a legacy floor? |
-| 2 | **Cash Flow Planner** | [`LifepathCashFlowSimulator.html`](LifepathCashFlowSimulator.html) · [`lifepath.js`](lifepath.js) | Deterministic, year-by-year | Same question, but with milestone-based income/savings/spending that change across life stages, plus Social Security and windfall events. |
+| 2 | **Cash Flow Planner** | [`LifepathCashFlowSimulator.html`](LifepathCashFlowSimulator.html) · [`lifepath.js`](lifepath.js) | Deterministic, year-by-year | Same question, but with milestone-based income/savings/spending that change across life stages, plus Social Security and windfall events, and recurring expenses that can start or end at retirement (e.g. pre-Medicare health insurance from retirement until 65). |
 | 3 | **Stress Tester** | [`StressTester.html`](StressTester.html) · [`stresstester.js`](stresstester.js) | Stochastic, Monte Carlo | How robust is a plan to market volatility? Generates percentile fans from historical-return bootstrap and chronological cohort windows. |
 | 4 | **HSA Transfer Optimizer** | [`HSATransfer.html`](HSATransfer.html) · [`hsa.js`](hsa.js) · [`hsa-engine.js`](hsa-engine.js) | Deterministic optimization (dynamic program) | When each cash→investment transfer costs a flat fee, how many transfers — and on what schedule, at what idle-cash threshold — maximize final value? |
 

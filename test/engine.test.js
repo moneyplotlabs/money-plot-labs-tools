@@ -173,6 +173,145 @@ describe('simulateNWPath — stochastic single-realization kernel', () => {
 });
 
 // ============================================================
+//  Recurring expenses (Cash Flow Planner + Stress Tester)
+// ============================================================
+describe('recurring expenses — additive spending windows', () => {
+
+    const R            = E.RETIREMENT;
+    const withExpenses = (expenses, opts) => ({ ...singleMilestone(opts), expenses });
+    const bridge       = { amt: 15000, start: R,    end: 65 };   // pre-Medicare health insurance
+    const commute      = { amt: 5000,  start: null, end: R  };   // a cost that stops at retirement
+    const zeros        = Array(80).fill(0);
+
+    test('expenseRates splits each active row into working and retired rates', () => {
+        const rows = [bridge, commute, { amt: 1000, start: 48, end: 52 }, { amt: -2000, start: 70, end: null }];
+        assert.deepEqual(E.expenseRates(40, rows), { work: 5000, retired: 15000 });
+        assert.deepEqual(E.expenseRates(48, rows), { work: 6000, retired: 16000 });   // start is inclusive
+        assert.deepEqual(E.expenseRates(52, rows), { work: 5000, retired: 15000 });   // end is exclusive
+        assert.deepEqual(E.expenseRates(65, rows), { work: 5000, retired: 0 });       // "until 65" last charges 64
+        assert.deepEqual(E.expenseRates(70, rows), { work: 3000, retired: -2000 });   // negative = spending cut
+        assert.deepEqual(E.expenseRates(50, [{ amt: 9000, start: R, end: R }]), { work: 0, retired: 0 });
+    });
+
+    test('an empty expense list is identical to having none', () => {
+        const plain = singleMilestone();
+        const empty = withExpenses([]);
+        assert.deepEqual(E.simulateLife(25, 95, 50000, 0.05, 0.04, 60.3, 95, empty),
+                         E.simulateLife(25, 95, 50000, 0.05, 0.04, 60.3, 95, plain));
+        assert.deepEqual(E.simulateNWPath(25, 95, 0, 0, 500000, 'nw', zeros, zeros, empty),
+                         E.simulateNWPath(25, 95, 0, 0, 500000, 'nw', zeros, zeros, plain));
+        assert.deepEqual(E.simulateDeterministicBars(25, 95, 0, 60.3, empty),
+                         E.simulateDeterministicBars(25, 95, 0, 60.3, plain));
+    });
+
+    test('r = 0: the bridge adds to withdrawals from retirement until 65', () => {
+        const res = E.simulateLife(25, 95, 2_000_000, 0, 0, 60, 95, withExpenses([bridge], { spending: 40000 }));
+        const nw  = (age) => res.nwData[age - 25].y;
+        for (let age = 60; age < 65; age++) assert.equal(nw(age + 1) - nw(age), -55000, `age ${age}`);
+        for (let age = 65; age < 95; age++) assert.equal(nw(age + 1) - nw(age), -40000, `age ${age}`);
+        const out = (age) => res.outflowData[age - 25].y;
+        assert.equal(out(59), -40000);
+        assert.equal(out(60), -55000);
+        assert.equal(out(65), -40000);
+    });
+
+    test('retiring at or after 65 means the bridge costs nothing', () => {
+        for (const rAge of [65, 65.5, 70]) {
+            const base = E.simulateLife(25, 95, 0, 0.03, 0.03, rAge, 95, singleMilestone());
+            const with_ = E.simulateLife(25, 95, 0, 0.03, 0.03, rAge, 95, withExpenses([bridge]));
+            assert.equal(with_.finalBalance, base.finalBalance, `rAge ${rAge}`);
+        }
+    });
+
+    test('r = 0: the transition year prorates a from-retirement row', () => {
+        const base = E.simulateLife(25, 95, 0, 0, 0, 62.5, 95, singleMilestone());
+        const with_ = E.simulateLife(25, 95, 0, 0, 0, 62.5, 95, withExpenses([bridge]));
+        close(base.finalBalance - with_.finalBalance, 15000 * 2.5, 1e-6);
+    });
+
+    test('r = 0: the transition year prorates an until-retirement row', () => {
+        const base = E.simulateLife(25, 95, 0, 0, 0, 60.5, 95, singleMilestone());
+        const with_ = E.simulateLife(25, 95, 0, 0, 0, 60.5, 95, withExpenses([commute]));
+        close(base.finalBalance - with_.finalBalance, 5000 * 35.5, 1e-6);
+    });
+
+    test('r = 0: a fixed-age window costs the same wherever retirement lands', () => {
+        const window = { amt: 30000, start: 48, end: 52 };
+        for (const rAge of [45, 50, 50.25, 55]) {
+            const base = E.simulateLife(25, 95, 1_000_000, 0, 0, rAge, 95, singleMilestone());
+            const with_ = E.simulateLife(25, 95, 1_000_000, 0, 0, rAge, 95, withExpenses([window]));
+            close(base.finalBalance - with_.finalBalance, 120000, 1e-6, `rAge ${rAge}`);
+        }
+    });
+
+    test('a negative amount mirrors a positive one', () => {
+        const fb = (ctx) => E.simulateLife(25, 95, 0, 0.05, 0.03, 60.3, 95, ctx).finalBalance;
+        const base = fb(singleMilestone());
+        const up   = fb(withExpenses([{ amt:  8000, start: R, end: null }]));
+        const cut  = fb(withExpenses([{ amt: -8000, start: R, end: null }]));
+        close(base - up, cut - base, 1e-6);
+        assert.ok(cut > base, 'a spending cut should end above the baseline');
+    });
+
+    test('solver property: final balance never falls as retirement moves later', () => {
+        // Anchoring the bridge to a milestone broke this (and the planner's bisection).
+        const ctx = { ...withExpenses([bridge]),
+            milestones: [{ id: 'm0', age: 30, income: 60000, savings: 15000, spending: 45000 }] };
+        let prev = -Infinity;
+        for (let rAge = 55; rAge <= 75; rAge += 0.25) {
+            const fb = E.simulateLife(30, 95, 0, 0.03, 0.03, rAge, 95, ctx).finalBalance;
+            assert.ok(fb >= prev, `final balance fell at rAge ${rAge} (${fb} < ${prev})`);
+            prev = fb;
+        }
+    });
+
+    test('simulateNWPath age mode: the bridge is paid from the fixed retirement age', () => {
+        const base = E.simulateNWPath(25, 95, 0, 61, 0, 'age', zeros, zeros, singleMilestone());
+        const with_ = E.simulateNWPath(25, 95, 0, 61, 0, 'age', zeros, zeros, withExpenses([bridge]));
+        close(base.finalBalance - with_.finalBalance, 15000 * 4, 1e-6);
+    });
+
+    test('simulateNWPath nw mode: each run pays the bridge from its own retirement age', () => {
+        const run = (target, ctx) => E.simulateNWPath(25, 95, 0, 0, target, 'nw', zeros, zeros, ctx);
+
+        const early     = run(600000, singleMilestone());
+        const earlyWith = run(600000, withExpenses([bridge]));
+        assert.equal(earlyWith.resolvedRAge, 55, 'a from-retirement row does not move retirement');
+        close(early.finalBalance - earlyWith.finalBalance, 150000, 1e-6);
+
+        const late     = run(900000, singleMilestone());
+        const lateWith = run(900000, withExpenses([bridge]));
+        assert.equal(lateWith.resolvedRAge, 70);
+        assert.equal(lateWith.finalBalance, late.finalBalance);
+    });
+
+    test('simulateNWPath nw mode: an until-retirement row delays the crossing', () => {
+        const run = (ctx, target = 600000) => E.simulateNWPath(25, 95, 0, 0, target, 'nw', zeros, zeros, ctx);
+        assert.equal(run(singleMilestone()).resolvedRAge, 55);
+        assert.equal(run(withExpenses([commute])).resolvedRAge, 65);   // saves 15k/yr instead of 20k
+        // A mid-year crossing: the target test and its interpolation both use the reduced savings.
+        close(run(withExpenses([commute]), 590000).resolvedRAge, 64 + 1 / 3, 1e-9);
+    });
+
+    test('simulateDeterministicBars matches simulateLife inflow and outflow', () => {
+        const ctx  = withExpenses([bridge, commute, { amt: -3000, start: 70, end: null }]);
+        const life = E.simulateLife(25, 95, 0, 0.03, 0.03, 60.4, 95, ctx);
+        const bars = E.simulateDeterministicBars(25, 95, 0, 60.4, ctx);
+        assert.deepEqual(bars.inflowData,  life.inflowData);
+        assert.deepEqual(bars.outflowData, life.outflowData);
+        // Transition year (60.4): 40% of the working rate, 60% of the retired rate.
+        close(bars.outflowData[60 - 25].y, -(60000 + 5000 * 0.4 + 15000 * 0.6), 1e-6);
+    });
+
+    test('accReachesTarget: until-retirement rows slow the accumulation', () => {
+        const years = Array(5).fill(0);
+        assert.equal(E.accReachesTarget(30, 0, 100000, singleMilestone({ savings: 20000 }), years), true);
+        const ctx = { ...singleMilestone({ savings: 20000 }), expenses: [{ amt: 10000, start: null, end: R }] };
+        assert.equal(E.accReachesTarget(30, 0, 100000, ctx, years), false);
+    });
+});
+
+// ============================================================
 //  Convergence to determinism (Whitepaper 003, σ → 0 limit)
 // ============================================================
 describe('σ → 0 limit: a zero-volatility Monte Carlo collapses to one path', () => {

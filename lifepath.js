@@ -43,6 +43,8 @@ const ssList             = document.getElementById('ss-list');
 const windfallList       = document.getElementById('windfall-list');
 const btnAddSs           = document.getElementById('btn-add-ss');
 const btnAddWindfall     = document.getElementById('btn-add-windfall');
+const expenseList        = document.getElementById('expense-list');
+const btnAddExpense      = document.getElementById('btn-add-expense');
 
 const mWorkYears         = document.getElementById('metric-work-years');
 const mRetireAge         = document.getElementById('metric-retire-age');
@@ -68,6 +70,7 @@ let lockedBpLevels        = null;     // frozen buying-power levels while an axi
 let milestones    = [];
 let ssEvents      = [];
 let windfallEvents = [];
+let expenses      = [];
 
 // ── Helpers ──────────────────────────────────────────
 // formatCurrency, newId, snapCeiling, snapFloor, snapFlowCeiling → common.js
@@ -185,6 +188,7 @@ function simulateLife(startAge, endAge, principal, rAcc, rDec, rAge, planningEnd
         milestones: milestones,
         ss:         ssEvents,
         windfall:   windfallEvents,
+        expenses:   expenses,
     });
 }
 
@@ -499,8 +503,10 @@ btnLinkRates.addEventListener('click', () => {
 function renderDynamicEvents() {
     ssList.innerHTML       = '';
     windfallList.innerHTML = '';
+    expenseList.innerHTML  = '';
     ssEvents.forEach(e       => ssList.appendChild(createEventUI(e, 'ss')));
     windfallEvents.forEach(e => windfallList.appendChild(createEventUI(e, 'wf')));
+    expenses.forEach(e       => expenseList.appendChild(createExpenseUI(e)));
 }
 
 function createEventUI(event, type) {
@@ -536,6 +542,81 @@ btnAddSs.addEventListener('click', () => {
 btnAddWindfall.addEventListener('click', () => {
     if (windfallEvents.length >= 100) return;
     windfallEvents.push({ id: newId(), amt: 50000, age: 50 });
+    renderDynamicEvents();
+    updateSimulation();
+});
+
+// ── Recurring Expenses ────────────────────────────────────────
+// Each end of the window is an age, retirement (the solved retirement age), or
+// open (from now / to the end of the plan). The select picks which; the age box
+// only shows for "age".
+function createExpenseUI(expense) {
+    const row = document.createElement('div');
+    row.className = 'expense-row';
+    row.innerHTML = `
+        <div class="interactive-row">
+            <input type="number" class="manual-box inp-amt" value="${expense.amt}" step="1000" placeholder="Amount ($/yr)" style="flex:1;">
+            <button class="btn-delete">✕</button>
+        </div>
+        <div class="expense-window">
+            <div class="expense-anchor">
+                <select class="sel-start">
+                    <option value="open">From now</option>
+                    <option value="age">From age</option>
+                    <option value="R">From retirement</option>
+                </select>
+                <input type="number" class="inp-start" min="0" max="120" placeholder="Age">
+            </div>
+            <div class="expense-anchor">
+                <select class="sel-end">
+                    <option value="age">Until age</option>
+                    <option value="R">Until retirement</option>
+                    <option value="open">Until end of plan</option>
+                </select>
+                <input type="number" class="inp-end" min="0" max="120" placeholder="Age">
+            </div>
+        </div>
+    `;
+
+    const bindAnchor = (key, defaultAge) => {
+        const sel  = row.querySelector('.sel-' + key);
+        const inp  = row.querySelector('.inp-' + key);
+        const read = () => {
+            if (sel.value === 'R')    return Engine.RETIREMENT;
+            if (sel.value === 'open') return null;
+            const age = parseInt(inp.value);
+            return Number.isNaN(age) ? null : age;   // blank age = open end
+        };
+        const v    = expense[key];
+        sel.value  = v === Engine.RETIREMENT ? 'R' : typeof v === 'number' ? 'age' : 'open';
+        inp.value  = typeof v === 'number' ? v : '';
+        inp.hidden = sel.value !== 'age';
+
+        sel.addEventListener('change', () => {
+            inp.hidden = sel.value !== 'age';
+            if (sel.value === 'age' && inp.value === '') inp.value = defaultAge;
+            expense[key] = read();
+            updateSimulation();
+        });
+        inp.addEventListener('change', () => { expense[key] = read(); updateSimulation(); });
+    };
+    bindAnchor('start', parseInt(boxStartAge.value) || 0);
+    bindAnchor('end',   65);
+
+    const inpAmt = row.querySelector('.inp-amt');
+    inpAmt.addEventListener('change', () => { expense.amt = parseFloat(inpAmt.value) || 0; updateSimulation(); });
+    row.querySelector('.btn-delete').addEventListener('click', () => {
+        expenses = expenses.filter(x => x.id !== expense.id);
+        renderDynamicEvents();
+        updateSimulation();
+    });
+    return row;
+}
+
+btnAddExpense.addEventListener('click', () => {
+    if (expenses.length >= 100) return;
+    // Default: pre-Medicare health insurance, from retirement until 65.
+    expenses.push({ id: newId(), amt: 15000, start: Engine.RETIREMENT, end: 65 });
     renderDynamicEvents();
     updateSimulation();
 });
@@ -664,7 +745,8 @@ function updateURLParams() {
     params.set('bp',          chkBuyingPower.checked ? '1' : '0');
     params.set('ss',          JSON.stringify(ssEvents.map(e => [e.amt, e.age])));
     params.set('wf',          JSON.stringify(windfallEvents.map(e => [e.amt, e.age])));
-    params.set('m',           JSON.stringify(milestones.map(m => [m.age, m.income, m.savings, m.spending])));
+    params.set('ex',          JSON.stringify(expenses.map(e => [e.amt, e.start, e.end])));
+    params.set('m',          JSON.stringify(milestones.map(m => [m.age, m.income, m.savings, m.spending])));
     if (boxAxisMin.value   !== "") params.set('xMin',     boxAxisMin.value);
     if (boxAxisMax.value   !== "") params.set('xMax',     boxAxisMax.value);
     if (boxYMax.value      !== "") params.set('yMax',     boxYMax.value);
@@ -691,6 +773,11 @@ function loadParamsFromURL() {
     if (p.has('yLeftMax'))    boxYLeftMax.value = p.get('yLeftMax');
     if (p.has('ss')) ssEvents       = JSON.parse(p.get('ss')).map(d => ({ id: newId(), amt: d[0], age: d[1] }));
     if (p.has('wf')) windfallEvents = JSON.parse(p.get('wf')).map(d => ({ id: newId(), amt: d[0], age: d[1] }));
+    if (p.has('ex')) {
+        try {
+            expenses = JSON.parse(p.get('ex')).map(d => ({ id: newId(), amt: d[0], start: d[1], end: d[2] }));
+        } catch (e) { console.error("Failed to parse recurring expenses from URL", e); }
+    }
 
     if (p.get('linked') === 'true') {
         ratesLinked                  = true;

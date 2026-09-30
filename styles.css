@@ -382,6 +382,47 @@ input[type="range"]::-webkit-slider-thumb:hover {
     gap: 6px;
 }
 
+/* Recurring expenses: amount on top, From / Until window below.
+   Each end is a <select> (age / retirement / open) plus an age box
+   that is only shown for "age". */
+.control-hint.expense-hint { margin: 0 0 8px; }
+
+.expense-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background-color: rgba(15, 23, 42, 0.4);
+}
+
+.expense-window {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+
+.expense-anchor {
+    display: flex;
+    gap: 4px;
+    min-width: 0;
+}
+
+.expense-anchor select,
+.expense-anchor input[type="number"] {
+    font-size: 0.85rem;
+    padding: 5px 6px;
+}
+
+.expense-anchor select { flex: 1; min-width: 0; }
+.expense-anchor input[type="number"] { width: 56px; flex-shrink: 0; }
+
+/* Phones: stack From / Until so the select labels aren't truncated */
+@media (max-width: 520px) {
+    .expense-window { grid-template-columns: 1fr; }
+}
+
 /* ============================================================
    Buttons
    ============================================================ */
