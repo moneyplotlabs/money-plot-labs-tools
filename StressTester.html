@@ -275,9 +275,13 @@
                 but measure different things: cohort = "did any real historical investor fail?";
                 bootstrap = "stress-testing against synthetic extremes."
                 The net worth chart displays a <strong>percentile fan</strong>: p10/p25 as dashed lines,
-                p50 as the solid median, plus the single actual run closest to the p10 terminal outcome
-                (orange) whose growth sequence also drives the cash flow bars.
-                Success rate = share of runs ending above the legacy floor.
+                p50 as the solid median, plus the single actual run at the 10th percentile of outcomes (orange;
+                ranked by how early the money runs out, then by ending balance) whose growth sequence also drives
+                the cash flow bars. Balances never go below $0: once a run's money is gone, it can only spend what
+                comes in that year (Social Security, windfalls, pay).
+                Success rate = share of runs that never run out and end at or above the legacy floor.
+                To compare other withdrawal strategies (constant %, amortization, guardrails, optimal) scored by
+                quality of life, see the <a href="StrategyLab.html" class="link-accent">Strategy Lab</a>.
             </p>
             <p>
                 <strong>Data Attribution:</strong> All historical return series cover <strong>1928–2024 (97 years)</strong>
@@ -331,6 +335,10 @@
         <a href="RothOptimizer.html" class="nav-item" title="Roth vs. Traditional bucket strategy">
             5. Roth Optimizer
             <span>Bucket Strategy</span>
+        </a>
+        <a href="StrategyLab.html" class="nav-item" title="Withdrawal strategies scored by quality of life">
+            6. Strategy Lab (Beta)
+            <span>Spending Strategies</span>
         </a>
     </nav>
 

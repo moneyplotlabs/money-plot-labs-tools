@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Money Plot Labs - Spending Strategy Lab (Beta)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="container">
+    <h2>Money Plot Labs: Spending Strategy Lab <span class="badge-beta">Beta</span></h2>
+    <p class="beta-note">Beta: the quality-of-life model, its defaults and the optimal strategy may still change. See the
+        <a href="./docs/005-spending-strategies-and-quality-of-life.pdf" target="_blank" class="link-accent">whitepaper</a>
+        for exactly how everything is calculated.</p>
+
+    <div class="metrics-grid metrics-grid-4">
+        <div class="metric-card">
+            <div id="metric-work-years-label" class="metric-label">Working Years</div>
+            <div id="metric-work-years" class="metric-value">0.0 Years</div>
+        </div>
+        <div class="metric-card blue">
+            <div id="metric-retire-age-label" class="metric-label">Retirement Age</div>
+            <div id="metric-retire-age" class="metric-value">Age --</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Success Rate</div>
+            <div id="metric-success-rate" class="metric-value">0%</div>
+        </div>
+        <div class="metric-card blue" id="metric-qol-card">
+            <div class="metric-label" title="The steady yearly spend (today's $, retired, nothing left over) that would be just as good as this plan across all simulated runs. Lower when spending is uneven, risky, or cut short.">Quality of Life</div>
+            <div id="metric-qol" class="metric-value">—</div>
+            <div id="metric-qol-sub" class="metric-subvalue"></div>
+        </div>
+    </div>
+
+    <div class="layout-split">
+
+        <!-- Chart -->
+        <div>
+            <div class="chart-header">
+                <span class="chart-label">Net Worth Percentile Fan + Median Cash Flow</span>
+                <button class="btn-lock btn-lock-chart" id="main-chart-lock">Lock Scale for Comparison</button>
+            </div>
+            <div class="chart-container">
+                <canvas id="lifepathChart"></canvas>
+                <div id="chart-loader" class="chart-loader">
+                    <span class="placeholder-text">Chart initialization pending engine logic...</span>
+                </div>
+            </div>
+
+            <div class="strategy-compare">
+                <div class="chart-header">
+                    <span class="chart-label">Spending Strategies — Same Markets, Scored</span>
+                </div>
+                <div class="compare-scroll">
+                    <table class="compare-table">
+                        <thead>
+                            <tr>
+                                <th>Strategy</th>
+                                <th title="Steady-spend equivalent of the average happiness across all runs (today's $)">Quality of Life<span class="th-sub">all runs</span></th>
+                                <th title="Each run's own steady-spend equivalent: 10th and 90th percentile across runs">10–90%<span class="th-sub">per-run QoL</span></th>
+                                <th title="Spending in every retired year of every run, pooled: 10th percentile / median">Retired Spend<span class="th-sub">p10 / p50, all retired yrs</span></th>
+                                <th title="Years spending falls short of the plan (by any amount), counted per run: the average across runs / the 90th percentile (the worst 10% of runs have at least this many). With mortality on, years are weighted by the chance of being alive.">Yrs Below Plan<span class="th-sub">avg / worst 10%</span></th>
+                                <th title="Share of runs that never run out of money and end at or above the legacy floor">Success<span class="th-sub">% of runs</span></th>
+                            </tr>
+                        </thead>
+                        <tbody id="strategy-table-body"></tbody>
+                    </table>
+                </div>
+                <p class="control-note">
+                    Every strategy is run on the same simulated return sequences and scored with the
+                    Quality of Life settings; <strong>Optimal</strong> is the best any spending rule can do under
+                    those settings (when it is solved for the same returns the markets use — the default), so each gap
+                    shows what a simpler rule gives up. Click a row to chart that strategy. Success rate alone flatters
+                    rigid plans and punishes flexible ones — a strategy that trims spending never "fails",
+                    and one that never trims fails hard.
+                </p>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+
+            <div class="control-group">
+                <label class="control-label">Dollar Display</label>
+                <div class="segmented-toggle" id="display-mode-toggle">
+                    <button type="button" class="seg-btn active" data-mode="real">Today's $ (Real)</button>
+                    <button type="button" class="seg-btn" data-mode="nominal">Future $ (Nominal)</button>
+                </div>
+            </div>
+
+            <div class="control-group" id="inflation-group" style="display:none;">
+                <label class="control-label" id="label-inflation">Assumed Inflation Rate: 3.0%</label>
+                <div class="interactive-row">
+                    <input type="range"  id="input-inflation" min="0" max="8" step="0.1" value="3.0">
+                    <input type="number" id="box-inflation"   class="manual-box" min="0" max="20" step="0.1" value="3.0">
+                </div>
+                <p class="control-note">
+                    Nominal (future $) applies only to the <strong>results and chart</strong>. All inputs —
+                    starting balance, milestone income/spending/savings, Social Security, and windfalls —
+                    are still entered in <strong>today's dollars</strong>. The model's returns stay real;
+                    in nominal mode the asset-growth bars also include the inflationary rise of the balance.
+                </p>
+                <label class="check-row">
+                    <input type="checkbox" id="chk-buying-power" checked>
+                    <span>Show equal-buying-power curves (net worth)</span>
+                </label>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Current Age</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-start-age" min="0" max="100" value="30">
+                    <input type="number" id="box-start-age"    class="manual-box" min="0" max="100" value="30">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Life Expectancy</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-end-age" min="0" max="120" value="95">
+                    <input type="number" id="box-end-age"    class="manual-box" min="0" max="120" value="95">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Retirement Trigger</label>
+                <div class="interactive-row" style="gap:6px;">
+                    <button id="retire-mode-age" class="btn-lock locked" style="flex:1;">Retire at Age</button>
+                    <button id="retire-mode-nw"  class="btn-lock"        style="flex:1;">Retire at Net Worth</button>
+                </div>
+            </div>
+
+            <!-- Age-based retirement (default visible) -->
+            <div id="retire-age-group" class="control-group">
+                <label class="control-label">Retirement Age</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-retire-age" min="0" max="100" value="65">
+                    <input type="number" id="box-retire-age"    class="manual-box" min="0" max="100" value="65">
+                </div>
+            </div>
+
+            <!-- NW-based retirement (hidden by default, shown by applyRetireMode) -->
+            <div id="retire-nw-group" class="control-group">
+                <label class="control-label" id="label-retire-nw">Retire at Net Worth: $1,000,000</label>
+                <div class="interactive-row">
+                    <input type="range"  id="input-retire-nw" min="0" max="5000000" step="50000" value="1000000">
+                    <input type="number" id="box-retire-nw"   class="manual-box" min="0" step="50000" value="1000000" placeholder="$">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Retirement Spending Strategy</label>
+                <select id="select-strategy">
+                    <option value="fixed" selected>Fixed — spend the plan</option>
+                    <option value="constant">Constant % of portfolio</option>
+                    <option value="amortize">Amortize (VPW)</option>
+                    <option value="guardrails">Guardrails</option>
+                    <option value="optimal">Optimal — max quality of life</option>
+                </select>
+                <div class="qol-grid strategy-params">
+                    <div class="control-group" data-strategy="constant">
+                        <label class="control-label control-label-sm">Withdrawal Rate %</label>
+                        <input type="number" id="box-strategy-rate" value="4" min="0" max="20" step="0.25">
+                    </div>
+                    <div class="control-group" data-strategy="amortize">
+                        <label class="control-label control-label-sm">Assumed Real Return %</label>
+                        <input type="number" id="box-strategy-ret" value="4" min="-5" max="15" step="0.25">
+                    </div>
+                    <div class="control-group" data-strategy="guardrails">
+                        <label class="control-label control-label-sm">Guardrail Band %</label>
+                        <input type="number" id="box-strategy-band" value="20" min="0" max="100" step="5">
+                    </div>
+                    <div class="control-group" data-strategy="guardrails">
+                        <label class="control-label control-label-sm">Adjustment %</label>
+                        <input type="number" id="box-strategy-adjust" value="10" min="0" max="50" step="5">
+                    </div>
+                    <div class="control-group span-2" data-strategy="optimal">
+                        <label class="control-label control-label-sm" title="The return distribution the Optimal policy is solved for. The simulated markets don't change; picking a different model tests the policy when its assumptions are off.">Solve Optimal Against</label>
+                        <select id="select-optimal-returns">
+                            <option value="match" selected>Same as decumulation growth</option>
+                            <option value="60-40">60/40 historical (1928–2024)</option>
+                            <option value="equities">US Equities historical (1928–2024)</option>
+                            <option value="manual">Manual — mean &amp; std dev</option>
+                        </select>
+                    </div>
+                    <div class="control-group" data-strategy="optimal" data-optimal-manual>
+                        <label class="control-label control-label-sm">Assumed Mean %</label>
+                        <input type="number" id="box-optimal-mean" value="5.0" step="0.1">
+                    </div>
+                    <div class="control-group" data-strategy="optimal" data-optimal-manual>
+                        <label class="control-label control-label-sm">Assumed Std Dev %</label>
+                        <input type="number" id="box-optimal-std" value="12.0" min="0" step="0.5">
+                    </div>
+                </div>
+                <div class="control-hint" id="strategy-hint"></div>
+                <div class="control-hint optimal-solved" id="optimal-solved"></div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label" id="label-principal">Starting Balance: $0</label>
+                <div class="interactive-row">
+                    <input type="range"  id="input-principal" min="0" max="1000000" step="10000" value="0">
+                    <input type="number" id="box-principal"   class="manual-box" min="0" step="1000" value="0" placeholder="$">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Accumulation Growth Method</label>
+                <select id="select-growth-method-acc">
+                    <option value="60-40" selected>60/40 Stocks/Bonds — real μ 5.9%, σ 12.5%</option>
+                    <option value="equities">US Equities (S&amp;P 500) — real μ 8.8%, σ 19.6%</option>
+                    <option value="cohort-6040">60/40 Chronological (1928–2024)</option>
+                    <option value="cohort-equities">US Equities Chronological (1928–2024)</option>
+                    <option value="manual">Manual — Mean &amp; Standard Deviation</option>
+                </select>
+                <div id="manual-inputs-acc" class="manual-inputs-grid">
+                    <div class="control-group">
+                        <label class="control-label control-label-sm">Mean %</label>
+                        <input type="number" id="box-growth-mean-acc" value="5.0" step="0.1">
+                    </div>
+                    <div class="control-group">
+                        <label class="control-label control-label-sm">Std Dev %</label>
+                        <input type="number" id="box-growth-std-acc" value="10.0" step="0.1">
+                    </div>
+                </div>
+            </div>
+
+            <div class="advanced-toggle" id="advanced-button">
+                <span>More Parameters</span>
+                <svg class="chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+
+            <div class="advanced-content" id="advanced-panel">
+
+                <!-- Decumulation Growth Method -->
+                <div class="control-group">
+                    <div class="section-header">
+                        <label class="control-label">Decumulation Growth Method</label>
+                        <button class="btn-lock btn-lock-sm" id="btn-link-rates">Link to Accumulation</button>
+                    </div>
+                    <select id="select-growth-method-dec">
+                        <option value="60-40" selected>60/40 Stocks/Bonds — real μ 5.9%, σ 12.5%</option>
+                        <option value="equities">US Equities (S&amp;P 500) — real μ 8.8%, σ 19.6%</option>
+                        <option value="cohort-6040">60/40 Chronological (1928–2024)</option>
+                        <option value="cohort-equities">US Equities Chronological (1928–2024)</option>
+                        <option value="manual">Manual — Mean &amp; Standard Deviation</option>
+                    </select>
+                    <div id="manual-inputs-dec" class="manual-inputs-grid">
+                        <div class="control-group">
+                            <label class="control-label control-label-sm">Mean %</label>
+                            <input type="number" id="box-growth-mean-dec" value="5.0" step="0.1">
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label control-label-sm">Std Dev %</label>
+                            <input type="number" id="box-growth-std-dec" value="10.0" step="0.1">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Legacy Floor -->
+                <div class="control-group">
+                    <label class="control-label" id="label-legacy-floor">Desired Legacy Floor: $0</label>
+                    <div class="interactive-row">
+                        <input type="range"  id="slider-legacy-floor" min="0" max="1000000" step="50000" value="0">
+                        <input type="number" id="box-legacy-floor"    class="manual-box" min="0" max="5000000" step="50000" value="0" placeholder="$">
+                    </div>
+                </div>
+
+                <!-- Chart X-Axis Bounds -->
+                <div class="advanced-row-x">
+                    <div class="x-input-pair">
+                        <div class="control-group">
+                            <label class="control-label">Chart Min Age</label>
+                            <input type="number" id="box-axis-min" min="0" max="100" value="" placeholder="Auto">
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label">Chart Max Age</label>
+                            <input type="number" id="box-axis-max" min="30" max="150" value="" placeholder="Auto">
+                        </div>
+                    </div>
+                </div>
+                <button class="btn-lock btn-lock-full" id="btn-lock-x">Lock Current X</button>
+
+                <!-- Chart Y-Axis (Net Worth) -->
+                <div class="control-group">
+                    <label class="control-label">Chart Max Net Worth ($)</label>
+                    <input type="number" id="box-y-max" step="100000" min="0" value="" placeholder="Auto (Peak Net Worth)">
+                </div>
+                <button class="btn-lock btn-lock-full" id="btn-lock-y">Lock Current Y</button>
+
+                <!-- Chart Left Y-Axis (Cash Flow) -->
+                <div class="advanced-row-y">
+                    <div class="x-input-pair">
+                        <div class="control-group">
+                            <label class="control-label">Chart Min Flow ($)</label>
+                            <input type="number" id="box-y-left-min" step="5000" value="" placeholder="Auto">
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label">Chart Max Flow ($)</label>
+                            <input type="number" id="box-y-left-max" step="10000" value="" placeholder="Auto">
+                        </div>
+                    </div>
+                </div>
+                <button class="btn-lock btn-lock-full" id="btn-lock-y-left">Lock Current Left Y</button>
+
+                <!-- Social Security / Pensions -->
+                <div class="section-divider">
+                    <div class="section-header">
+                        <label class="control-label">Social Security / Pensions</label>
+                        <button class="btn-lock btn-lock-sm" id="btn-add-ss">+ Add</button>
+                    </div>
+                    <div id="ss-list" class="event-list"></div>
+                </div>
+
+                <!-- Recurring Expenses -->
+                <div class="section-divider">
+                    <div class="section-header">
+                        <label class="control-label">Recurring Expenses</label>
+                        <button class="btn-lock btn-lock-sm" id="btn-add-expense">+ Add</button>
+                    </div>
+                    <div class="control-hint expense-hint">Added to milestone spending while active. Use a negative amount for a spending cut.</div>
+                    <div id="expense-list" class="event-list"></div>
+                </div>
+
+                <!-- Windfalls -->
+                <div class="section-divider">
+                    <div class="section-header">
+                        <label class="control-label">One-time Windfalls</label>
+                        <button class="btn-lock btn-lock-sm" id="btn-add-windfall">+ Add</button>
+                    </div>
+                    <div id="windfall-list" class="event-list"></div>
+                </div>
+
+            </div><!-- /advanced-panel -->
+
+            <div class="advanced-toggle" id="qol-button">
+                <span>Quality of Life Scoring</span>
+                <svg class="chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+
+            <div class="advanced-content" id="qol-panel">
+                <p class="control-note">
+                    Scores each run by the spending it actually delivers: planned spending while the money lasts,
+                    then only Social Security / windfalls once it runs out. By default your <strong>plan's spending
+                    is the goal</strong>: falling short of it hurts a lot, going over it helps a little. The result is
+                    the <strong>steady yearly spend</strong> that would feel just as good — in today's $.
+                </p>
+
+                <div class="control-group">
+                    <label class="control-label">Happiness Model</label>
+                    <select id="select-qol-model">
+                        <option value="target" selected>Target — your plan's spending is the goal</option>
+                        <option value="crra">Smooth curve (γ) — no target</option>
+                    </select>
+                </div>
+
+                <div class="qol-grid">
+                    <div class="control-group">
+                        <label class="control-label control-label-sm" title="How much less a year of happiness counts for each year further in the future. Matching the expected return makes Optimal aim for level spending.">Time Discount</label>
+                        <select id="select-qol-discount">
+                            <option value="match" selected>Match expected return</option>
+                            <option value="custom">Custom %/yr</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label class="control-label control-label-sm" title="Used when Time Discount is Custom. 0 = next year counts as much as this year.">Discount (%/yr)</label>
+                        <input type="number" id="box-qol-discount" value="1.0" min="0" max="20" step="0.5">
+                    </div>
+                    <div class="control-group">
+                        <label class="control-label control-label-sm" title="How much a year of spending is enjoyed at 90 compared with now. 100% = no decline.">Enjoyment at 90 (% of now)</label>
+                        <input type="number" id="box-qol-enjoy90" value="100" min="0" max="100" step="5">
+                    </div>
+                    <div class="control-group">
+                        <label class="control-label control-label-sm" title="Enjoyment is full until this age, then declines in a straight line to the age-90 value, and holds after 90.">Enjoyment Declines From Age</label>
+                        <input type="number" id="box-qol-enjoy-from" value="70" min="0" max="89" step="1">
+                    </div>
+                </div>
+                <div class="control-hint qol-discount-hint" id="qol-discount-hint"></div>
+
+                <div class="qol-grid">
+                    <div class="control-group" data-qol-model="target">
+                        <label class="control-label control-label-sm" title="Below your planned spending, each dollar short hurts this many times as much as a dollar over it feels good. Studies of loss aversion put it around 2–2.5.">Shortfall Pain (×)</label>
+                        <input type="number" id="box-qol-loss" value="2.5" min="1" max="10" step="0.5">
+                    </div>
+                    <div class="control-group" data-qol-model="target">
+                        <label class="control-label control-label-sm" title="How much happiness spending above your plan adds. Lower = it saturates sooner.">Extra Spending Worth</label>
+                        <select id="select-qol-gain">
+                            <option value="1">High</option>
+                            <option value="2" selected>Moderate</option>
+                            <option value="4">Low</option>
+                        </select>
+                    </div>
+                    <div class="control-group" data-qol-model="target">
+                        <label class="control-label control-label-sm" title="Each dollar left at death (or at the horizon) is worth this share of a dollar of extra spending at your plan. 0 = leftover money is wasted, so any surplus gets spent.">Leftover $ Worth (%)</label>
+                        <input type="number" id="box-qol-legacy" value="25" min="0" max="100" step="5">
+                    </div>
+                    <div class="control-group" data-qol-model="crra">
+                        <label class="control-label control-label-sm" title="Relative risk aversion γ. How much you dislike uneven spending. A 50/50 shot at $50k or $100k (above the floor) feels like a sure $70.7k at γ=1, $66.7k at γ=2, $60.6k at γ=4.">Swing Aversion (γ)</label>
+                        <input type="number" id="box-qol-gamma" value="2" min="0.1" max="10" step="0.5">
+                    </div>
+                    <div class="control-group">
+                        <label class="control-label control-label-sm" title="Bare-minimum yearly spending. Spending near or below it counts as very bad.">Spending Floor ($)</label>
+                        <input type="number" id="box-qol-floor" value="20000" min="0" step="1000">
+                    </div>
+                    <div class="control-group">
+                        <label class="control-label control-label-sm" title="Weights each year by the chance you are alive to enjoy it (CDC 2023 US life tables).">Mortality</label>
+                        <select id="select-qol-sex">
+                            <option value="off" selected>Off (live to horizon)</option>
+                            <option value="unisex">Unisex</option>
+                            <option value="female">Female</option>
+                            <option value="male">Male</option>
+                        </select>
+                    </div>
+                </div>
+                <p class="control-note qol-meaning" id="qol-meaning"></p>
+                <p class="control-note">
+                    With mortality on, <strong>Life Expectancy</strong> acts as the planning horizon — set it to 95–100+
+                    so few runs outlive it.
+                </p>
+
+                <details class="qol-help">
+                    <summary>What these settings do</summary>
+                    <p class="qol-help-intro">
+                        None of these settings change the simulated markets, or what the Fixed, Constant %, Amortize
+                        and Guardrails strategies spend — those follow their own rules, and these settings only change
+                        how their years are <strong>scored</strong>. The <strong>Optimal</strong> strategy is
+                        re-solved to maximize the score, so for it these settings also change what it spends.
+                    </p>
+                    <dl>
+                        <dt>Happiness Model: Target (default)</dt>
+                        <dd>
+                            Your <strong>target</strong> is your plan's spending in each year: the milestone's lifestyle
+                            spending plus recurring expenses (working-year or retired-year rows, whichever applies).
+                            Spending exactly the target scores 100%. Each year's happiness compares what the run spends
+                            with that year's target, so a plan whose spending changes by life stage is judged stage by
+                            stage. The steady-spend result is shown in dollars at your average target and as "% of plan".
+                            <em>Optimal strategies:</em> the target is a strong anchor — they hold spending at the plan
+                            whenever the money allows, cut only when they must, and rise above it only with a real
+                            surplus.
+                        </dd>
+
+                        <dt>Shortfall Pain (×)</dt>
+                        <dd>
+                            Just below the target, each dollar short hurts this many times as much as a dollar over feels
+                            good (2.5 = a $1,000 cut hurts like a $2,500 raise helps), and deeper cuts hurt faster still,
+                            steeply as you near the floor. Most people land around 2–2.5. The line above the help shows
+                            what your setting means at your plan's spending — e.g. how big a raise it takes to make up for a
+                            10% cut. Higher values make every strategy's lean years cost more, and make the optimal
+                            strategies hold a bigger cushion to avoid cuts.
+                        </dd>
+
+                        <dt>Extra Spending Worth</dt>
+                        <dd>
+                            How much spending above the target adds. <em>High</em>: steady diminishing returns (each
+                            doubling adds the same). <em>Moderate</em>: saturates — spending twice the target gets you half
+                            of all the extra happiness there is. <em>Low</em>: saturates fast; a little above the target is
+                            nearly as good as a lot. Lower values make good markets count for less in the score and make
+                            the optimal strategies less eager to spend windfalls.
+                        </dd>
+
+                        <dt>Leftover $ Worth (%)</dt>
+                        <dd>
+                            What money left at death (or at the Life Expectancy horizon) is worth, as a share of a dollar
+                            of extra spending at your target: at 25%, the first $4 left are as good as spending $1 more at
+                            your plan. Its value tapers slowly as the pile grows — with Moderate extra-spending worth, a
+                            leftover dollar keeps at least half its value until you'd leave about 40 years of planned
+                            spending — so a huge estate can't dominate the score. Raise it toward 50% to keep spending
+                            close to the plan even when there's a surplus. At 0, leftover money is wasted, so the optimal strategies eventually spend any surplus
+                            and the score ignores what's left; above 0, they hold spending near the target instead of
+                            raising it, and runs that end with money left score a bit higher. (Separate from the
+                            <em>Desired Legacy Floor</em>, which only sets the success-rate threshold.)
+                        </dd>
+
+                        <dt>Swing Aversion (γ) — smooth-curve model only</dt>
+                        <dd>
+                            The alternative model has no target: how fast extra spending stops adding happiness: each year's happiness is
+                            (spending − floor)<sup>1−γ</sup>/(1−γ). Higher γ makes a lean year cost far more than a rich
+                            year adds back, so uneven or risky spending scores lower. Across runs, the steady-spend
+                            figure sits further below the average outcome. A 50/50 shot at $50k or $100k above the floor
+                            feels like a sure $70.7k at γ = 1, $66.7k at γ = 2 and $60.6k at γ = 4.
+                            <em>Optimal strategies:</em> γ sets how hard they work to keep spending even. With a
+                            meaningful floor, a higher γ makes them hold back a bigger cushion — e.g. at 55 with $600k,
+                            a $20k floor and $24k Social Security from 67, about $41k/yr at γ = 2 but $34k at γ = 4.
+                            With no floor the effect is small and can go either way, because a higher γ also makes them
+                            less willing to put off spending to chase returns.
+                        </dd>
+
+                        <dt>Spending Floor ($)</dt>
+                        <dd>
+                            The bare minimum. Happiness is measured on spending above the floor, so as spending
+                            approaches it the penalty climbs steeply. Below floor + $1,000 the penalty keeps growing in a
+                            steep straight line (finite, so one bad year can't swamp everything). Years near or below the
+                            floor dominate the score, so a Fixed plan that runs out of money and falls back to Social
+                            Security scores close to the floor. The floor is not income: it doesn't put money in, it
+                            only sets where "lean" starts.
+                            <em>Optimal strategies:</em> they hold back enough to avoid ever dropping toward the floor —
+                            for example, they won't leave a gap of near-zero spending before Social Security starts.
+                        </dd>
+
+                        <dt>Mortality</dt>
+                        <dd>
+                            Weights each year by the chance you're alive to enjoy it, from the
+                            <a href="https://www.cdc.gov/nchs/data/nvsr/nvsr74/nvsr74-06.pdf" target="_blank" class="link-accent">CDC/NCHS United States Life Tables, 2023</a>
+                            (Unisex averages the male and female rates; sources under Data Attribution below). Later years count for less, so spending
+                            earlier is worth more and running short at 90 hurts less than at 70. <em>Off</em> (the default) treats
+                            you as certain to live exactly to the Life Expectancy age. Years past Life Expectancy are
+                            never scored; when more than 5% of people would still be alive then, the Quality of Life
+                            card says "% outlive horizon".
+                            <em>Optimal strategies:</em> with mortality on they spend more early and less late; with it
+                            off they spread spending more evenly up to the horizon.
+                        </dd>
+
+                        <dt>Time Discount</dt>
+                        <dd>
+                            How much less a year of happiness counts for each year further in the future: at d%/yr, a
+                            year t years away counts (1 + d)<sup>−t</sup> as much as this year. It weighs against the
+                            return Optimal is solved for: if returns beat the discount, waiting pays and Optimal lets
+                            spending rise over time; if the discount beats returns, spending falls.
+                            <em>Match expected return</em> (the default) sets d to the mean return of the model Optimal
+                            is solved against (shown under the inputs), so Optimal aims for level spending — like
+                            Amortization with a well-chosen return — while still holding a cushion for bad markets.
+                            <em>Custom</em> uses your own d: below the return to back-load spending, above it to
+                            front-load. The discount also weights years in the score, so distant years count less in
+                            the steady-spend figure.
+                        </dd>
+
+                        <dt>Enjoyment at 90 / Declines From Age</dt>
+                        <dd>
+                            How much a year of spending is enjoyed late in life, relative to now: full until the
+                            "declines from" age, then a straight line down to the age-90 value, which then holds. 100%
+                            (the default) means no decline. Lower values make late years count less in the score and
+                            let Optimal spend more earlier.
+                        </dd>
+                    </dl>
+                </details>
+            </div>
+
+            <div id="milestone-container" class="milestone-list"></div>
+            <button id="add-event-btn" class="btn-add-event">+ Add Life Event (Milestone)</button>
+
+        </div><!-- /controls -->
+    </div><!-- /layout-split -->
+
+    <div class="doc-footer">
+        <div class="doc-notes">
+            <p>
+                <strong>Methodology:</strong> Two simulation modes are available.
+                <strong>Bootstrap resampling</strong> (60/40, Equities, Manual): runs 1,000 Monte Carlo
+                iterations sampling returns randomly with replacement.
+                <strong>Chronological cohort</strong>: walks every valid overlapping window through the
+                actual 1928–2024 return sequence — e.g. a 40-year horizon yields 58 cohorts (1928–1967,
+                1929–1968, … 1985–2024). If both phases use a chronological method (or are linked), the
+                full planning horizon must fit within 97 years; if only one phase is chronological, only
+                that phase's length is constrained. Horizons exceeding 97 years show a warning.
+                <strong>Note:</strong> Cohort success rates are not directly comparable to bootstrap success rates.
+                Over long horizons, all cohort windows have similar CAGRs (e.g. 4.6–5.9% for 60/40 over 67 years)
+                because sequence variance averages out. Bootstrap can draw pathological sequences that never
+                occurred in real history, producing wider variance and lower success rates. Both are valid
+                but measure different things: cohort = "did any real historical investor fail?";
+                bootstrap = "stress-testing against synthetic extremes."
+                <strong>Quality of life:</strong> each run's realized spending (capped at Social Security and
+                windfalls once the portfolio is empty) is scored against that year's planned spending — shortfalls
+                hurt more than the same surplus helps, steeply near the spending floor (or, optionally, with a smooth
+                CRRA curve) — weighted by the chance of being alive each year (CDC 2023 US life tables), an
+                enjoyment-by-age weight and a time discount (by default matched to the expected return). Averaging across
+                runs and converting back to dollars gives the steady-spend equivalent; the 10–90% range is the
+                same figure per run, and "short of plan" is the expected number of years (counting only years
+                you are alive) the run could not fund planned spending.
+                <strong>Spending strategies:</strong> <em>Fixed</em> spends the milestone plan regardless of markets;
+                <em>Constant %</em> withdraws a share of the current balance plus Social Security; <em>Amortize (VPW)</em>
+                re-solves each year for the level spending that exhausts the balance plus the present value of
+                future Social Security and windfalls by the horizon at an assumed real return; <em>Guardrails</em>
+                (simplified Guyton–Klinger, real terms) scales the plan up or down when the withdrawal rate
+                leaves a band around its starting value. Flexible strategies never borrow. All five run on the
+                same return sequences, so their scores differ only by the strategy. <em>Optimal</em> is the
+                spending policy that maximizes the Quality of Life score itself, solved by backward induction over
+                age and cash on hand (a 300-point wealth grid) against the decumulation return distribution — the
+                exact historical pool for bootstrap methods, a 9-point Gauss–Hermite normal for manual inputs, and
+                the historical pool treated as independent years for chronological cohorts. It knows it cannot
+                borrow against future Social Security, which is where amortization falls short. <em>Solve Optimal
+                Against</em> can instead solve it for a different return model (60/40 or equities history, or a
+                normal with your mean and std dev) while the simulated markets stay as set — a test of how the policy
+                holds up when its return assumptions are wrong, as amortization's assumed return can be.
+                The net worth chart displays a <strong>percentile fan</strong>: p10/p25 as dashed lines,
+                p50 as the solid median, plus the single actual run at the 10th percentile of outcomes (orange) —
+                for Fixed, ranked by how early the money runs out and then by ending balance; for the flexible
+                strategies, by quality of life — whose growth sequence also drives the cash flow bars.
+                Balances never go below $0: once a run's money is gone, it can only spend what comes in that
+                year (Social Security, windfalls, pay). Success rate = share of runs that never run out and end at
+                or above the legacy floor.
+            </p>
+            <p>
+                <strong>Data Attribution:</strong> All historical return series cover <strong>1928–2024 (97 years)</strong>
+                and are expressed as <strong>real (inflation-adjusted) annual returns</strong>.
+            </p>
+            <p>
+                <strong>US Equities (S&amp;P 500)</strong> — nominal total returns (price + dividends) sourced from
+                <a href="https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/histretSP.html" target="_blank" class="link-accent">Aswath Damodaran, NYU Stern</a>.
+                CPI deflation applied using U.S. Bureau of Labor Statistics data via
+                <a href="https://www.bls.gov/cpi/" target="_blank" class="link-accent">BLS</a> /
+                <a href="https://shillerdata.com" target="_blank" class="link-accent">Robert Shiller</a>.
+                Real arithmetic mean <strong>8.8%</strong>, std dev <strong>19.6%</strong>, geometric CAGR <strong>6.9%</strong>.
+            </p>
+            <p>
+                <strong>60/40 Portfolio</strong> (60% S&amp;P 500 + 40% 10-Year US Treasury Bond) — bond total returns
+                (coupon + price appreciation) from
+                <a href="https://fred.stlouisfed.org" target="_blank" class="link-accent">FRED, St. Louis Fed</a>
+                as compiled by Damodaran; blended and deflated by CPI.
+                Real arithmetic mean <strong>5.9%</strong>, std dev <strong>12.5%</strong>, geometric CAGR <strong>5.1%</strong>.
+            </p>
+            <p>
+                <strong>Mortality (life expectancy)</strong> — one-year death probabilities by age from the
+                <a href="https://www.cdc.gov/nchs/data/nvsr/nvsr74/nvsr74-06.pdf" target="_blank" class="link-accent">CDC/NCHS United States Life Tables, 2023</a>
+                (National Vital Statistics Reports Vol. 74, No. 6), using the
+                <a href="https://ftp.cdc.gov/pub/Health_Statistics/NCHS/Publications/NVSR/74-06/Table02.xlsx" target="_blank" class="link-accent">male (Table 2)</a> and
+                <a href="https://ftp.cdc.gov/pub/Health_Statistics/NCHS/Publications/NVSR/74-06/Table03.xlsx" target="_blank" class="link-accent">female (Table 3)</a> data files; Unisex averages the two.
+                The tables end in an open "100 and older" group, so ages 100–119 are extended with a Gompertz curve
+                fitted to ages 90–99. Life expectancy at 65: male <strong>18.2</strong>, female <strong>20.7</strong>
+                years. More editions: <a href="https://www.cdc.gov/nchs/products/life_tables.htm" target="_blank" class="link-accent">CDC Life Tables</a>.
+            </p>
+        </div>
+        <div class="doc-links doc-links-stacked">
+            <a href="./docs/005-spending-strategies-and-quality-of-life.pdf" target="_blank" class="btn-doc">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                Spending Strategies Whitepaper (PDF)
+            </a>
+            <a href="./docs/003-stochastic-retirement-framework.pdf" target="_blank" class="btn-doc">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                Stochastic Framework Whitepaper (PDF)
+            </a>
+            <a href="./docs/001-the-pure-math-of-financial-freedom.pdf" target="_blank" class="btn-doc">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                Pure Math Derivations (PDF)
+            </a>
+        </div>
+    </div>
+
+    <nav class="tools-nav">
+        <a href="index.html" class="nav-item" title="Static, Closed-form calculus">
+            1. Macro Sandbox
+            <span>High-level Engine</span>
+        </a>
+        <a href="LifepathCashFlowSimulator.html" class="nav-item" title="Static, Year-by-year lookup">
+            2. Cash Flow Planner
+            <span>Variable Yearly Flow</span>
+        </a>
+        <a href="StressTester.html" class="nav-item" title="Stochastic, Lifepath engine">
+            3. Stress Tester
+            <span>Lifepath Volatility</span>
+        </a>
+        <a href="HSATransfer.html" class="nav-item" title="HSA transfer-fee optimization">
+            4. HSA Transfer
+            <span>Fee Optimization</span>
+        </a>
+        <a href="RothOptimizer.html" class="nav-item" title="Roth vs. Traditional bucket strategy">
+            5. Roth Optimizer
+            <span>Bucket Strategy</span>
+        </a>
+        <a href="#" class="nav-item active" title="Withdrawal strategies scored by quality of life">
+            6. Strategy Lab (Beta)
+            <span>Spending Strategies</span>
+        </a>
+    </nav>
+
+</div><!-- /container -->
+
+<script src="common.js"></script>
+<script src="engine.js"></script>
+<script src="qol-engine.js"></script>
+<script src="strategylab.js"></script>
+<footer class="site-footer">
+    Money Plot Labs · <a href="https://docs.google.com/forms/d/e/1FAIpQLSdMDJYC1tLzpVimhVExzzZspFVAxCYKDUOZnlokIErD3mrQsw/viewform?usp=pp_url&amp;entry.2075267935=Strategy+Lab" target="_blank" rel="noopener noreferrer">Send feedback</a>
+</footer>
+</body>
+</html>

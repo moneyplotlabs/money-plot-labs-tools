@@ -37,9 +37,35 @@ npm run test:coverage # run with line/branch/function coverage
     matching `simulateLife`, and the `accReachesTarget` cohort filter.
   - **σ → 0 limit**: a 1,000-run zero-volatility Monte Carlo collapses to a
     single deterministic path — the convergence-to-determinism result.
+  - **Balances capped at $0**: a funded plan spends exactly the plan and never
+    runs out; an unfunded plan stops at $0 (no debt), records the age it ran out,
+    earns nothing once empty, and spends only Social Security after that.
+  - **Retirement spending strategies**: `annuityDue` exhausts the balance;
+    `fixed` is the untouched default; amortization is level (and spreads future
+    Social Security) when returns match the assumption; constant % spends
+    rate × balance + passive income; guardrails cut after losses and raise after
+    gains; flexible strategies never run out; the transition year blends in.
+    (`optimal` is covered in `qol-engine.test.js`.)
   - `getReturnSeries` / `getCohortOffsets` / `buildCohortRuns`: series length,
     bootstrap-from-pool, verbatim cohort windows, window counts, and the
     seeded recovery of the target mean/standard deviation at scale.
+
+- **`qol-engine.test.js`** — quality-of-life scoring: the target utility (0 at the
+  plan, a λ-times steeper slope just below it, concave, invertible, capped upside,
+  age/working-dependent targets, 100% of plan when always on target), the tapered
+  leftover-money value and its anchoring effect on the optimal policy, the CDC 2023
+  mortality tables (life expectancy at 65, monotone hazards, survival curves), age
+  schedules, CRRA utility (concavity, `u`/`inv` round-trips including below the
+  floor, smooth linear continuation), user-scored happiness curves (validation,
+  log-linear interpolation, inverse), `gammaFromGamble` against closed-form
+  answers, and `lifetimeUtility` / `evaluatePaths` properties — constant
+  spending's CE equals itself, smoothing beats lumpiness, mortality favors earlier
+  spending, risk pulls CE to the harmonic mean at γ = 2, and bequest
+  probabilities sum to one. Return models (Gauss–Hermite moments) and
+  `solveSpendingPolicy` against theory: the riskless level annuity, the Euler
+  tilt (β(1+r))^(1/γ), mortality front-loading, a constant spending share under
+  risk (Merton), no borrowing against future income, and beating every
+  heuristic strategy on the same seeded Monte Carlo.
 
 ## Determinism
 
