@@ -537,9 +537,11 @@ function updateSimulation() {
 
     for (const { retAcc, retDec } of simRuns) {
         const sim = simulateNWPath(currentAge, stopAge, principal, rAge, nwTarget, retireMode, retAcc, retDec);
-        if (sim.finalBalance >= floor) successes++;
+        // Balances stop at $0, so success = never ran out and ended at or above the floor.
+        if (sim.ranOutAge === null && sim.finalBalance >= floor) successes++;
         sim.nwByAge.forEach((bal, idx) => allNW[idx].push(bal));
-        allRunData.push({ finalBalance: sim.finalBalance, growthByAge: sim.growthByAge, nwByAge: sim.nwByAge, resolvedRAge: sim.resolvedRAge });
+        allRunData.push({ finalBalance: sim.finalBalance, growthByAge: sim.growthByAge, nwByAge: sim.nwByAge,
+                          resolvedRAge: sim.resolvedRAge, ranOutAge: sim.ranOutAge, spendByAge: sim.spendByAge });
         if (retireMode === 'nw') allRAges.push(sim.resolvedRAge);
     }
 
@@ -563,16 +565,16 @@ function updateSimulation() {
     computedPeakCache = Math.max(...nwP90.map(d => d.y));
 
     // ── Representative downside run ───────────────────────────
-    // The single run whose ENDING balance is closest to the 10th-percentile final
-    // outcome. Note this is a low-OUTCOME run, not a "below-target" run: a run that
-    // ends in the bottom decile almost always crossed the retirement target (that's
-    // why it retired) and then drew down on poor decumulation returns. A run that
-    // never reaches the target keeps earning and ends HIGH, not low.
-    const p10TerminalNW = nwP10[nwP10.length - 1].y;
-    const p10Run = allRunData.reduce((best, run) =>
-        Math.abs(run.finalBalance - p10TerminalNW) < Math.abs(best.finalBalance - p10TerminalNW)
-            ? run : best
-    );
+    // The run at the 10th percentile of outcomes. Note this is a low-OUTCOME run, not a
+    // "below-target" run: a run that ends in the bottom decile almost always crossed the
+    // retirement target (that's why it retired) and then drew down on poor decumulation
+    // returns. A run that never reaches the target keeps earning and ends HIGH, not low.
+    // Runs that run out rank below those that don't — the earlier, the lower — and the
+    // rest by ending balance. (Matching the p10 ending balance instead fails once that
+    // outcome is depleted: every depleted run ends at $0, so it would pick one that only
+    // runs out at the very end.)
+    const outcome = run => run.ranOutAge === null ? run.finalBalance : run.ranOutAge - stopAge - 1;
+    const p10Run  = [...allRunData].sort((a, b) => outcome(a) - outcome(b))[Math.round(0.1 * (allRunData.length - 1))];
     const barAges       = Array.from({ length: nAgesBar }, (_, i) => currentAge + i);
     const growthP10Data     = barAges.map((age, idx) => ({ x: age, y: p10Run.growthByAge[idx] ?? 0 }));
 
@@ -588,6 +590,9 @@ function updateSimulation() {
     // exactly when that scenario's net worth crosses the target.
     const barsRAge = (retireMode === 'age') ? rAge : p10Run.resolvedRAge;
     const bars     = simulateDeterministicBars(currentAge, stopAge, principal, barsRAge);
+    // Outflow bars show what that run actually spent: the plan while the money lasts,
+    // then only what comes in (Social Security / windfalls) once it is gone.
+    bars.outflowData = bars.outflowData.map((pt, idx) => ({ x: pt.x, y: -(p10Run.spendByAge[idx] ?? 0) }));
 
     // ── Metrics ───────────────────────────────────────────────
     const successRate = (successes / simRuns.length) * 100;

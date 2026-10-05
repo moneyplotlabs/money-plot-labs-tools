@@ -170,6 +170,114 @@ describe('simulateNWPath — stochastic single-realization kernel', () => {
         const res = E.simulateNWPath(25, 95, 0, 60, 0, 'age', zeros, zeros, ctx);
         assert.equal(res.nwByAge.length, (95 - 25) + 2);
     });
+
+    // Solvent track (quality-of-life scoring): withdrawals stop at an empty portfolio.
+    test('a funded plan: solvent track equals the net-worth path and spends exactly the plan', () => {
+        const ret = Array(80).fill(0.04);
+        const res = E.simulateNWPath(25, 95, 0, 60.5, 0, 'age', ret, ret, ctx);
+        assert.ok(res.finalBalance > 0);
+        assert.equal(res.spendByAge.length, 71);
+        res.solventByAge.forEach((b, i) => close(b, res.nwByAge[i + 1], 1e-6, `age ${25 + i}`));
+        res.spendByAge.forEach((c, i) => close(c, res.plannedSpendByAge[i], 1e-9));
+        assert.equal(res.workFracByAge[0], 1);
+        close(res.workFracByAge[60 - 25], 0.5, 1e-12);
+        assert.equal(res.workFracByAge[70], 0);
+        assert.equal(res.ranOutAge, null);
+    });
+
+    test('an empty portfolio earns nothing, even in a boom', () => {
+        const boom = Array(80).fill(0.3);
+        const res = E.simulateNWPath(25, 95, 0, 30, 0, 'age', boom, boom, ctx);   // retire at 30 with ~100k
+        const out = res.ranOutAge - 25;
+        assert.ok(out > 5 && out < 70);
+        res.nwByAge.slice(out + 1).forEach(b => assert.equal(b, 0));
+        res.growthByAge.slice(out + 1).forEach(g => assert.equal(g, 0));
+    });
+
+    test('an unfunded plan: spending falls to Social Security once the money runs out', () => {
+        const ss = { ...ctx, ss: [{ age: 67, amt: 24000 }] };
+        // r = 0, save 20k/yr for 25 years = 500k; spend 60k from 50 → empty at ~58, SS from 67.
+        const res = E.simulateNWPath(25, 95, 0, 50, 0, 'age', zeros, zeros, ss);
+        assert.equal(res.finalBalance, 0, 'the balance stops at $0 instead of going into debt');
+        assert.equal(res.ranOutAge, 58);
+        res.nwByAge.forEach(b => assert.ok(b >= 0));
+        res.growthByAge.slice(58 - 25).forEach(g => assert.equal(g, 0));
+        close(res.spendByAge[50 - 25], 60000, 1e-9, 'still funded at 50');
+        close(res.spendByAge[58 - 25], 20000, 1e-6, 'last 20k at 58');
+        close(res.spendByAge[60 - 25], 0, 1e-9, 'nothing left at 60');
+        close(res.spendByAge[80 - 25], 24000, 1e-9, 'Social Security only at 80');
+        close(res.plannedSpendByAge[80 - 25], 60000, 1e-9);
+    });
+});
+
+// ============================================================
+//  Retirement spending strategies (Stress Tester)
+// ============================================================
+describe('retirement spending strategies', () => {
+
+    const ctx  = singleMilestone({ income: 80000, savings: 20000, spending: 60000 });
+    const flat = (r) => Array(80).fill(r);
+    const run  = (strategy, c = ctx, ret = flat(0.04), rAge = 60) =>
+        E.simulateNWPath(25, 95, 0, rAge, 0, 'age', ret, ret, { ...c, strategy });
+    const retired = (res) => res.spendByAge.slice(60 - 25);
+
+    test('annuityDue: r = 0 splits evenly; otherwise exactly exhausts the balance', () => {
+        close(E.annuityDue(300000, 0, 30), 10000, 1e-9);
+        const c = E.annuityDue(500000, 0.04, 20);
+        let b = 500000;
+        for (let i = 0; i < 20; i++) b = (b - c) * 1.04;
+        close(b, 0, 1e-6);
+    });
+
+    test('fixed is the default and leaves the original path untouched', () => {
+        assert.deepEqual(run({ type: 'fixed' }), run(undefined));
+    });
+
+    test('amortize: when returns match the assumption, spending is level and ends at zero', () => {
+        const res = run({ type: 'amortize', ret: 0.04 });
+        const s = retired(res);
+        for (const c of s) close(c, s[0], 1e-6);
+        close(res.solventByAge[res.solventByAge.length - 1], 0, 1e-4);
+    });
+
+    test('amortize: future Social Security is spent down smoothly, not on arrival', () => {
+        const withSS = { ...ctx, ss: [{ age: 67, amt: 24000 }] };
+        const res = run({ type: 'amortize', ret: 0.04 }, withSS);
+        const s = retired(res);
+        for (const c of s) close(c, s[0], 1e-6);
+        assert.ok(s[0] > retired(run({ type: 'amortize', ret: 0.04 }))[0], 'SS raises the level from day one');
+    });
+
+    test('constant %: spends rate × balance plus passive income', () => {
+        const withSS = { ...ctx, ss: [{ age: 67, amt: 24000 }] };
+        const res = run({ type: 'constant', rate: 0.04 }, withSS);
+        close(res.spendByAge[61 - 25], 0.04 * res.nwByAge[61 - 25], 1e-6);
+        close(res.spendByAge[70 - 25], 0.04 * res.nwByAge[70 - 25] + 24000, 1e-6);
+    });
+
+    test('guardrails: start at the plan, cut after losses, raise after gains', () => {
+        close(retired(run({ type: 'guardrails', band: 0.2, adjust: 0.1 }, ctx, flat(0))) [0], 60000, 1e-9);
+        const bad  = retired(run({ type: 'guardrails', band: 0.2, adjust: 0.1 }, ctx, flat(-0.03)));
+        const good = retired(run({ type: 'guardrails', band: 0.2, adjust: 0.1 }, ctx, flat(0.08)));
+        assert.ok(bad[10] < 60000 * 0.95, `a falling portfolio should trigger cuts, got ${bad[10]}`);
+        assert.ok(good[20] > 60000 * 1.05, `a growing portfolio should trigger raises, got ${good[20]}`);
+    });
+
+    test('flexible strategies never borrow, even in a terrible market', () => {
+        for (const strategy of [{ type: 'constant', rate: 0.05 }, { type: 'amortize', ret: 0.05 },
+                                { type: 'guardrails', band: 0.2, adjust: 0.1 }]) {
+            const res = run(strategy, ctx, flat(-0.05));
+            res.nwByAge.forEach(b => assert.ok(b >= -1e-6, `${strategy.type}: balance ${b}`));
+            assert.equal(res.ranOutAge, null, `${strategy.type} never asks for more than is there`);
+        }
+    });
+
+    test('a fractional retirement age blends the strategy into the transition year', () => {
+        const res = run({ type: 'amortize', ret: 0.04 }, ctx, flat(0.04), 60.5);
+        close(res.workFracByAge[60 - 25], 0.5, 1e-12);
+        assert.ok(res.spendByAge[60 - 25] > 0);
+        res.nwByAge.forEach(b => assert.ok(b >= -1e-6));
+    });
 });
 
 // ============================================================
@@ -268,7 +376,8 @@ describe('recurring expenses — additive spending windows', () => {
     test('simulateNWPath age mode: the bridge is paid from the fixed retirement age', () => {
         const base = E.simulateNWPath(25, 95, 0, 61, 0, 'age', zeros, zeros, singleMilestone());
         const with_ = E.simulateNWPath(25, 95, 0, 61, 0, 'age', zeros, zeros, withExpenses([bridge]));
-        close(base.finalBalance - with_.finalBalance, 15000 * 4, 1e-6);
+        // Compared at 66, before either runs out (both plans deplete later at r = 0).
+        close(base.nwByAge[66 - 25] - with_.nwByAge[66 - 25], 15000 * 4, 1e-6);
     });
 
     test('simulateNWPath nw mode: each run pays the bridge from its own retirement age', () => {
@@ -277,12 +386,12 @@ describe('recurring expenses — additive spending windows', () => {
         const early     = run(600000, singleMilestone());
         const earlyWith = run(600000, withExpenses([bridge]));
         assert.equal(earlyWith.resolvedRAge, 55, 'a from-retirement row does not move retirement');
-        close(early.finalBalance - earlyWith.finalBalance, 150000, 1e-6);
+        close(early.nwByAge[58 - 25] - earlyWith.nwByAge[58 - 25], 15000 * 3, 1e-6);   // 55, 56, 57
 
         const late     = run(900000, singleMilestone());
         const lateWith = run(900000, withExpenses([bridge]));
         assert.equal(lateWith.resolvedRAge, 70);
-        assert.equal(lateWith.finalBalance, late.finalBalance);
+        assert.deepEqual(lateWith.nwByAge, late.nwByAge);
     });
 
     test('simulateNWPath nw mode: an until-retirement row delays the crossing', () => {

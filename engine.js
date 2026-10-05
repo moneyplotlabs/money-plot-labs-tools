@@ -481,8 +481,46 @@
         return runs;
     }
 
+    // ── Retirement spending strategies ──────────────────────────
+    // Each returns the year's total spending (annual rate, before the transition-
+    // year fraction), given the balance B at the start of the retired part of the
+    // year, the plan's spending for that year and this year's passive income.
+    //   fixed      { type:'fixed' }                    — spend the plan, whatever happens
+    //   constant   { type:'constant', rate }           — withdraw rate·B, plus passive income
+    //   amortize   { type:'amortize', ret }            — level spending that would use up B plus
+    //              the present value of future passive income and windfalls by the plan's end,
+    //              if the portfolio earned `ret` (re-solved every year, like VPW)
+    //   guardrails { type:'guardrails', band, adjust } — spend the plan × a multiplier; when the
+    //              withdrawal rate drifts more than `band` (fractional) above/below its value at
+    //              retirement, cut/raise the multiplier by `adjust` (Guyton–Klinger, simplified:
+    //              real terms, no capital-preservation sunset)
+    //   optimal    { type:'optimal', policy }          — policy.consumption(age, cash on hand), e.g.
+    //              from Qol.solveSpendingPolicy (the utility-maximizing dynamic program)
+    const STRATEGIES = ['fixed', 'constant', 'amortize', 'guardrails', 'optimal'];
+
+    // Payment at the start of each of n years that exhausts pv at return r.
+    function annuityDue(pv, r, n) {
+        if (n <= 0) return pv;
+        if (Math.abs(r) < 1e-9) return pv / n;
+        return pv * r / ((1 - Math.pow(1 + r, -n)) * (1 + r));
+    }
+
     // Per-age net-worth path for one return realization. Deterministic given
     // returnsAcc / returnsDec. ctx = { milestones, ss, windfall, expenses }.
+    //
+    // The portfolio never goes below $0: once it is empty, spending is capped at what
+    // Social Security / windfalls / income bring in that year. Per year t (index t − startAge):
+    //   plannedSpendByAge — lifestyle spending the plan calls for
+    //   spendByAge        — what was actually spent
+    //   workFracByAge     — fraction of the year worked (fractional in the retirement year)
+    //   solventByAge      — end-of-year balance (= nwByAge shifted by one year)
+    // ranOutAge is the first age the money couldn't fund the strategy's spending (null if
+    // never) — the failure signal, since a depleted run now ends at exactly $0.
+    //
+    // ctx.strategy picks how retirement spending is set each year (see
+    // retirementSpending). 'fixed' (the default) aims for the plan regardless of markets
+    // and runs out when the money does; the flexible strategies react to the balance and
+    // never ask for more than is there, so they never run out.
     function simulateNWPath(startAge, endAge, principal, rAge, nwTarget, mode, returnsAcc, returnsDec, ctx) {
         const milestones     = (ctx && ctx.milestones) || [];
         const ssEvents       = (ctx && ctx.ss)         || [];
@@ -492,6 +530,49 @@
         let balance = principal;
         const nwByAge     = [];
         const growthByAge = [];
+
+        const strategy = (ctx && ctx.strategy) || { type: 'fixed' };
+        const flowAt   = (t) => ssEvents.reduce((acc, ss) => acc + (t >= ss.age ? ss.amt : 0), 0)
+                              + windfallEvents.reduce((acc, wf) => t === wf.age ? acc + wf.amt : acc, 0);
+        // Present value (at ret) of passive income + windfalls from each age to endAge.
+        const pvFlows = [];
+        if (strategy.type === 'amortize') {
+            for (let t = endAge, acc = 0; t >= startAge; t--) {
+                acc = flowAt(t) + acc / (1 + strategy.ret);
+                pvFlows[t - startAge] = acc;
+            }
+        }
+        let grMult = 1, grWR0 = null;   // guardrails state
+
+        function retirementSpending(t, B, planned, passive, windfall, retireFrac) {
+            let c;
+            if (strategy.type === 'constant') {
+                c = strategy.rate * Math.max(0, B) + passive;
+            } else if (strategy.type === 'amortize') {
+                c = annuityDue(Math.max(0, B) + pvFlows[t - startAge], strategy.ret, endAge - t + 1);
+            } else if (strategy.type === 'guardrails') {
+                if (grWR0 === null) {
+                    grWR0 = B > 0 ? (planned - passive) / B : 0;
+                } else if (B > 0 && grWR0 > 0) {
+                    const wr = (grMult * planned - passive) / B;
+                    if (wr > grWR0 * (1 + strategy.band))      grMult *= 1 - strategy.adjust;
+                    else if (wr < grWR0 * (1 - strategy.band)) grMult *= 1 + strategy.adjust;
+                }
+                c = grMult * planned;
+            } else if (strategy.type === 'optimal') {
+                c = strategy.policy.consumption(t, Math.max(0, B) + passive + windfall);
+            } else {
+                return planned;   // fixed: asks for the plan even if the money isn't there
+            }
+            // Flexible strategies never borrow: cap at what the portfolio and this year's inflows fund.
+            return Math.max(0, Math.min(c, Math.max(0, B) / retireFrac + passive + windfall));
+        }
+
+        let ranOutAge = null;
+        const plannedSpendByAge = [];
+        const spendByAge        = [];
+        const workFracByAge     = [];
+        const solventByAge      = [];
 
         // In NW mode we don't know rAge yet — find the first crossing during accumulation
         let resolvedRAge = (mode === 'age') ? rAge : endAge;   // default: never crossed → work until end
@@ -533,25 +614,38 @@
             const k     = Math.floor(resolvedRAge);
             const delta = resolvedRAge - k;
 
-            if (t < k) {
-                balance = balanceAfterAcc;
-                growthByAge.push(balance - startBal - savings - passive - windfall);
-            } else if (t === k) {
-                const workFrac   = delta;
-                const retireFrac = 1 - delta;
-                const balanceMid = startBal * Math.pow(1 + rAcc, workFrac)
-                    + (savings + passive + windfall) * workFrac;
-                balance = (balanceMid - spending * retireFrac + (passive + windfall) * retireFrac)
-                    * Math.pow(1 + rDec, retireFrac);
-                growthByAge.push(balance - startBal - (savings * workFrac) + (spending * retireFrac) - passive - windfall);
-            } else {
-                balance = (startBal - spending + passive + windfall) * (1 + rDec);
-                growthByAge.push(balance - startBal + spending - passive - windfall);
-            }
+            const workFrac   = t < k ? 1 : t === k ? delta : 0;
+            const retireFrac = 1 - workFrac;
+
+            // Worked part of the year: pay covers lifestyle spending, savings land at its end.
+            // Negative savings with an empty portfolio can only be met by spending less.
+            const workSpend = m.spending + ex.work;
+            let mid = startBal * Math.pow(1 + rAcc, workFrac) + (savings + passive + windfall) * workFrac;
+            let consumed = workSpend * workFrac;
+            if (mid < 0) { consumed += mid; mid = 0; }
+
+            // Retired part: withdraw the strategy's spending, but never more than is there.
+            const retSpend  = retireFrac > 0
+                ? retirementSpending(t, mid, spending, passive, windfall, retireFrac)
+                : spending;
+            const available = mid + (passive + windfall) * retireFrac;
+            const draw      = Math.min(retSpend * retireFrac, Math.max(0, available));
+            consumed += draw + Math.min(0, available);          // an unpayable negative windfall cuts spending
+            const invested  = Math.max(0, available - draw);
+            balance = invested * Math.pow(1 + rDec, retireFrac);
+            growthByAge.push(startBal * (Math.pow(1 + rAcc, workFrac) - 1) + invested * (Math.pow(1 + rDec, retireFrac) - 1));
+
+            if (ranOutAge === null && consumed < workSpend * workFrac + retSpend * retireFrac - 1) ranOutAge = t;
+
+            plannedSpendByAge.push(workSpend * workFrac + spending * retireFrac);
+            spendByAge.push(consumed);
+            workFracByAge.push(workFrac);
+            solventByAge.push(balance);
         }
         nwByAge.push(balance);
 
-        return { nwByAge, growthByAge, finalBalance: balance, resolvedRAge };
+        return { nwByAge, growthByAge, finalBalance: balance, resolvedRAge, ranOutAge,
+                 plannedSpendByAge, spendByAge, workFracByAge, solventByAge };
     }
 
     // Deterministic inflow/outflow bars (no growth rate needed). ctx = { milestones, ss, windfall, expenses }.
@@ -605,6 +699,8 @@
         simulateLife,
         simulateNWPath,
         simulateDeterministicBars,
+        STRATEGIES,
+        annuityDue,
         getReturnSeries,
         getCohortOffsets,
         buildCohortRuns,
