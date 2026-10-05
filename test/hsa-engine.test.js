@@ -10,15 +10,19 @@ const H = require('../hsa-engine.js');
 const close = (a, b, tol, msg) =>
     assert.ok(Math.abs(a - b) <= tol, `${msg || ''} expected ≈${b}, got ${a} (tol ${tol})`);
 
-const baseInputs = { years: 3, cAnnual: 4000, cLump: 400, r: 0.04, fee: 25 };
+const baseInputs = { years: 3, cAnnual: 4000, lumps: [{ amount: 400, dayOfYear: 0 }], r: 0.04, fee: 25 };
 
 describe('deriveParams', () => {
-    test('derives day-level constants and yearly lump days', () => {
+    test('derives day-level constants and expands lumps across every year', () => {
         const p = H.deriveParams(baseInputs);
         assert.equal(p.T, 1095);
         close(p.cDay, 4000 / 365, 1e-9);
         close(p.rDay, 0.04 / 365, 1e-12);
-        assert.deepEqual(p.lumpDays, [0, 365, 730]);
+        assert.deepEqual(p.lumpDeposits, [
+            { day: 0,   amount: 400 },
+            { day: 365, amount: 400 },
+            { day: 730, amount: 400 },
+        ]);
     });
 });
 
@@ -50,7 +54,7 @@ describe('valueOfSchedule', () => {
     test('a block worth less than the fee is clamped to zero, never negative', () => {
         // A transfer on day 1 captures ~ one day of drip + the day-0 lump ($400+),
         // still above the fee; force a pathological tiny block instead:
-        const tiny = H.deriveParams({ years: 1, cAnnual: 0, cLump: 0, r: 0.04, fee: 25 });
+        const tiny = H.deriveParams({ years: 1, cAnnual: 0, lumps: [], r: 0.04, fee: 25 });
         // No contributions at all → every block is 0, clamped, never negative.
         assert.ok(H.valueOfSchedule([100, 200], tiny) >= 0);
     });
@@ -61,7 +65,9 @@ describe('optimize', () => {
 
     test('reproduces the exact per-k optimal values (day resolution)', () => {
         const res = H.optimize(p, { kmax: 8, step: 1 });
-        const expected = [13175.00, 13571.40, 13701.06, 13734.04, 13750.49, 13756.82, 13747.13, 13735.08, 13722.47];
+        // k=7 and k=8 end with a transfer on day T-1, leaving a final block smaller
+        // than the fee; it is clamped to zero (losing $10.96 rather than paying $25).
+        const expected = [13175.00, 13571.40, 13701.06, 13734.04, 13750.49, 13756.82, 13747.13, 13736.39, 13725.64];
         expected.forEach((v, k) => close(res.perK[k].value, v, 0.01, `k=${k}`));
     });
 
@@ -116,6 +122,64 @@ describe('optimize', () => {
         const lo = H.optimize(H.deriveParams({ ...baseInputs, r: 0.02 }), { kmax: 6, step: 1 });
         const hi = H.optimize(H.deriveParams({ ...baseInputs, r: 0.08 }), { kmax: 6, step: 1 });
         assert.ok(hi.bestValue > lo.bestValue);
+    });
+});
+
+describe('multiple lumps', () => {
+    const multi = { years: 2, cAnnual: 4000, lumps: [{ amount: 800, dayOfYear: 0 }, { amount: 300, dayOfYear: 45 }], r: 0.04, fee: 25 };
+
+    test('every lump repeats on its day-of-year in every year of the term', () => {
+        assert.deepEqual(H.deriveParams(multi).lumpDeposits, [
+            { day: 0,   amount: 800 },
+            { day: 45,  amount: 300 },
+            { day: 365, amount: 800 },
+            { day: 410, amount: 300 },
+        ]);
+    });
+
+    test('cumCash counts each lump only once the day it lands has passed', () => {
+        const p = H.deriveParams(multi);
+        close(H.cumCash(45, p), p.cDay * 45 + 800, 1e-9);
+        close(H.cumCash(46, p), p.cDay * 46 + 1100, 1e-9);
+        close(H.cumCash(p.T, p), p.cDay * p.T + 2200, 1e-9);
+    });
+
+    test('k=0 equals total cash from every lump plus the drip, minus one fee', () => {
+        const p = H.deriveParams(multi);
+        close(H.valueOfSchedule([], p), p.cDay * p.T + 2200 - 25, 1e-6);
+        close(H.optimize(p, { kmax: 4, step: 1 }).baselineValue, p.cDay * p.T + 2200 - 25, 1e-6);
+    });
+
+    test('the order lumps are listed in does not change the result', () => {
+        const a = H.optimize(H.deriveParams(multi), { kmax: 6, step: 1 });
+        const b = H.optimize(H.deriveParams({ ...multi, lumps: [...multi.lumps].reverse() }), { kmax: 6, step: 1 });
+        close(b.bestValue, a.bestValue, 1e-9);
+        assert.deepEqual(b.bestDays, a.bestDays);
+    });
+
+    test('two lumps on the same day behave like one combined lump', () => {
+        const split    = H.deriveParams({ ...multi, lumps: [{ amount: 500, dayOfYear: 0 }, { amount: 300, dayOfYear: 0 }, { amount: 300, dayOfYear: 45 }] });
+        const combined = H.deriveParams(multi);
+        close(H.optimize(split, { kmax: 6, step: 1 }).bestValue, H.optimize(combined, { kmax: 6, step: 1 }).bestValue, 1e-9);
+    });
+
+    describe('lumps only (no drip)', () => {
+        const p = H.deriveParams({ years: 2, cAnnual: 0, lumps: [{ amount: 1000, dayOfYear: 100 }], r: 0.04, fee: 25 });
+        const res = H.optimize(p, { kmax: 4, step: 1 });
+
+        test('transfers the day after each lump lands', () => {
+            assert.equal(res.bestK, 2);
+            assert.deepEqual(res.bestDays, [101, 466]);
+            const g = (t) => Math.pow(1 + p.rDay, p.T - t);
+            close(res.bestValue, 975 * (g(101) + g(466)), 1e-6);
+        });
+
+        test('an empty final transfer costs nothing, so the reported value re-evaluates exactly', () => {
+            // Nothing accrues after day 466: the closing transfer at T moves $0 and
+            // must be clamped to zero in the optimizer, just as valueOfSchedule does.
+            close(H.valueOfSchedule(res.bestDays, p), res.bestValue, 1e-6);
+            res.perK.forEach(e => close(H.valueOfSchedule(e.days, p), e.value, 1e-6, `k=${e.k}`));
+        });
     });
 });
 

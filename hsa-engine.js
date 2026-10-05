@@ -144,8 +144,12 @@
         const ccT   = cumCash(T, p);
 
         const NEG = -Infinity;
+        // Net value of moving `cash` in one transfer: the fee comes off the block,
+        // clamped at zero exactly as in valueOfSchedule, so the DP optimizes the
+        // same objective the schedule is later evaluated with.
+        const net = (cash) => Math.max(0, cash - fee);
         // k = 0: a single transfer at T.
-        const baseline = (ccT - cumCash(0, p)) - fee;
+        const baseline = net(ccT - cumCash(0, p));
         const perK = [{ k: 0, value: baseline, days: [] }];
 
         // DP across levels. val[j][i] = best value using j transfers with the j-th
@@ -157,13 +161,13 @@
         // Level j = 1: first transfer at days[i] captures cash from day 0.
         val[1]  = new Array(n);
         back[1] = new Array(n).fill(-1);
-        for (let i = 0; i < n; i++) val[1][i] = (ccDay[i] - fee) * gDay[i];
+        for (let i = 0; i < n; i++) val[1][i] = net(ccDay[i]) * gDay[i];
 
         const recordBestFinal = (j) => {
             // Append the mandatory final transfer at T after the j-th intermediate.
             let best = NEG, bi = -1;
             for (let i = 0; i < n; i++) {
-                const v = val[j][i] + (ccT - ccDay[i]) - fee;
+                const v = val[j][i] + net(ccT - ccDay[i]);
                 if (v > best) { best = v; bi = i; }
             }
             // Recover the schedule by walking backpointers down the levels.
@@ -188,7 +192,7 @@
                 const gi = gDay[i], cci = ccDay[i];
                 let best = NEG, bm = -1;
                 for (let m = 0; m < i; m++) {
-                    const cand = val[j - 1][m] + (cci - ccDay[m]) * gi - fee * gi;
+                    const cand = val[j - 1][m] + net(cci - ccDay[m]) * gi;
                     if (cand > best) { best = cand; bm = m; }
                 }
                 val[j][i] = best; back[j][i] = bm;
