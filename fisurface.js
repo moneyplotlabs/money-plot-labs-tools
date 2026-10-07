@@ -13,7 +13,9 @@
 // ORDER_FORM_URL: the form's ".../viewform" link. ORDER_FORM_DESIGN_ENTRY: the entry id
 // of a short-answer question for the design link (Google Forms → ⋮ → "Get pre-filled
 // link", fill that question, copy the link, and take the number after "entry.").
-// The button stays hidden while ORDER_FORM_URL is empty.
+// ORDERS_OPEN: false hides the Order button, the price and the shipping notes (the tool and
+// STL download stay). The button also stays hidden while ORDER_FORM_URL is empty.
+const ORDERS_OPEN = false;
 const ORDER_FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSfUVS1cdBybxPGuKF9pinA4B0pLfSR02kBj_mndhbYh2MX5qA/viewform';
 const ORDER_FORM_DESIGN_ENTRY = '258278663';
 
@@ -126,7 +128,9 @@ const INPUTS = {           // URL key → input id
     stk: 'in-showticks', scap: 'in-showcaption', lh: 'in-layer', fl: 'in-first', nz: 'in-nozzle',
     bx: 'in-bedx', by: 'in-bedy', bz: 'in-bedz', inf: 'in-inflation', bp: 'in-bp',
     cc: 'in-ccontours', cl: 'in-clabels', csh: 'in-cshape', cb: 'in-cbody', ca: 'in-caccent', pc: 'in-colors',
+    dot: 'in-youdot', site: 'in-site',
 };
+const SITE_TEXT = 'MONEYPLOTLABS.COM';
 const isCheck = id => $(id).type === 'checkbox';
 const getVal = id => isCheck(id) ? ($(id).checked ? '1' : '0') : $(id).value;
 const setVal = (id, v) => { if (isCheck(id)) $(id).checked = v !== '0'; else $(id).value = v; };
@@ -205,6 +209,8 @@ function readParams() {
         captionText: $('in-caption').value.trim(),
         captionDate: designMonthLabel(),
         youLabel: $('in-you').value.trim(),
+        youMarker: $('in-youdot').checked ? { diameterMm: 8, heightMm: 3 } : null,
+        siteText: $('in-site').checked ? SITE_TEXT : '',
         bed: [num('in-bedx', 250), num('in-bedy', 210), num('in-bedz', 210)],
         // Auto: a step reads in one color; a cut shelf gives an accent line an even width;
         // bands need no shape (the color change at the line's height is the line)
@@ -325,15 +331,16 @@ function updateStats(c) {
     orderProblems = problems;
     $('btn-order').classList.toggle('fis-needs-fix', problems.length > 0);
     $('btn-order').title = problems.length ? 'Needs a change before ordering: click for details' : 'Order this design as a print';
-    for (const pr of problems) html += ' · ' + warn('to order: ' + pr.text);
+    if (ORDERS_OPEN) for (const pr of problems) html += ' · ' + warn('to order: ' + pr.text);
     if (!$('order-help').hidden) showOrderHelp(false);   // keep an open help box current
     if (p.rawIncome !== p.youIncome || p.rawExpenses !== p.youExpenses)
-        html += ' · ' + warn('your income/expenses are outside the window (line drawn at the edge)');
+        html += ' · ' + warn('your income/expenses are outside the window (line drawn at the edge): widen the window or unlock the axes');
     $('print-stats').innerHTML = html;
 }
 
 // Which colors are on hand, and what that means for shipping.
 function updateFilamentNote() {
+    if (!ORDERS_OPEN) { $('filament-note').textContent = ''; $('order-note').textContent = ''; return; }
     const chosen = [$('in-cbody').value, $('in-caccent').value].map(filamentById).filter(Boolean);
     const list = a => a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
     const stock = list(FILAMENTS.filter(f => f.inStock).map(f => f.name));
@@ -712,6 +719,7 @@ function onMapHover(e) {
 let view = 'print', pending = null;
 
 function update() {
+    syncAxisLock();
     const p = readParams();
     $('label-return').textContent = `Real Return: ${(p.R * 100).toFixed(1)}%`;
     $('label-swr').textContent = `Safe Withdrawal Rate: ${(p.S * 100).toFixed(1)}%`;
@@ -792,17 +800,31 @@ function downloadSTL() {
 
 // The design link sent with an order has every "auto" value written out, so the order opens
 // exactly as previewed even if the auto rules or presets change later.
-function frozenDesignLink() {
-    const p = readParams(), url = new URL(window.location.href);
-    const resolved = {
+// Every auto value as it resolves right now (URL key → value)
+function resolvedAuto(p) {
+    return {
         imin: p.incomeRange[0], imax: p.incomeRange[1], xmin: p.expenseRange[0], xmax: p.expenseRange[1],
         is: p.incomeStep, xs: p.expenseStep, isc: p.incomeScale, xsc: p.expenseScale,
         cap: p.capYears, cs: p.contourYears.length > 1 ? p.contourYears[1] - p.contourYears[0] : p.capYears,
         tks: p.tickTextMm, tts: p.titleTextMm, ts: p.inlineTextMm,
     };
-    for (const [key, v] of Object.entries(resolved)) url.searchParams.set(key, v);
+}
+function frozenDesignLink() {
+    const url = new URL(window.location.href);
+    for (const [key, v] of Object.entries(resolvedAuto(readParams()))) url.searchParams.set(key, v);
     return url.toString();
 }
+
+// Lock axes: write the window, grid, scale, cap and contour step into their fields, so changing
+// income or expenses only moves your lines and dot. Unlocking clears them back to auto.
+const LOCK_KEYS = ['imin', 'imax', 'xmin', 'xmax', 'is', 'xs', 'isc', 'cap', 'cs'];
+function setAxisLock(on) {
+    const v = resolvedAuto(readParams());
+    for (const key of LOCK_KEYS) $(INPUTS[key]).value = on ? ($(INPUTS[key]).value || v[key]) : '';
+    commitBasis();
+    update();
+}
+const syncAxisLock = () => { $('in-lockaxes').checked = LOCK_KEYS.every(key => $(INPUTS[key]).value !== ''); };
 
 // Order button: open the form, or explain what to change (with a one-click fix) if this design
 // can't be printed as it is. The button stays clickable so nobody is left wondering why.
@@ -906,7 +928,8 @@ $('print-button').addEventListener('click', () => {
     $('print-panel').classList.toggle('visible');
 });
 $('btn-download').addEventListener('click', downloadSTL);
-if (ORDER_FORM_URL) {
+$('in-lockaxes').addEventListener('change', e => setAxisLock(e.target.checked));
+if (ORDERS_OPEN && ORDER_FORM_URL) {
     $('btn-order').hidden = false;
     $('btn-order').textContent = 'Order a Print · $' + (LAUNCH_PRICE || PRICE);
     $('btn-order').addEventListener('click', onOrderClick);
@@ -917,7 +940,7 @@ window.addEventListener('resize', () => { if (view === 'map') drawMap(readParams
 
 for (const [id, def] of [['in-cbody', 'white'], ['in-caccent', 'black']]) {
     $(id).innerHTML = FILAMENTS.map(f =>
-        `<option value="${f.id}"${f.id === def ? ' selected' : ''}>${f.name}${f.inStock ? ' (in stock)' : ''}</option>`).join('');
+        `<option value="${f.id}"${f.id === def ? ' selected' : ''}>${f.name}${ORDERS_OPEN && f.inStock ? ' (in stock)' : ''}</option>`).join('');
 }
 const startView = loadParamsFromURL();
 commitBasis();
