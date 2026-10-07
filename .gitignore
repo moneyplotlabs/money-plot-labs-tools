@@ -17,3 +17,7 @@ node_modules/
 .DS_Store
 .vscode/
 .idea/
+
+# FI Surface scratch: downloaded STLs and the original (57 MB) notebook
+files/*.stl
+files/*.original.ipynb

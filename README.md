@@ -38,6 +38,7 @@ cash into investments costs a flat fee, what transfer schedule maximizes growth?
 | 3 | **Stress Tester** | [`StressTester.html`](StressTester.html) · [`stresstester.js`](stresstester.js) | Stochastic, Monte Carlo | How robust is a plan to market volatility? Generates percentile fans from historical-return bootstrap and chronological cohort windows. |
 | 4 | **HSA Transfer Optimizer** | [`HSATransfer.html`](HSATransfer.html) · [`hsa.js`](hsa.js) · [`hsa-engine.js`](hsa-engine.js) | Deterministic optimization (dynamic program) | When each cash→investment transfer costs a flat fee, how many transfers — and on what schedule, at what idle-cash threshold — maximize final value? |
 | 6 | **Spending Strategy Lab** (beta) | [`StrategyLab.html`](StrategyLab.html) · [`strategylab.js`](strategylab.js) · [`qol-engine.js`](qol-engine.js) | Stochastic, Monte Carlo + dynamic program | Given the same simulated markets, which way of setting retirement spending buys the best life? Runs fixed, constant %, amortization (VPW), guardrails and the utility-**optimal** policy side by side, and scores each by **quality of life** — happiness against your plan's own spending (shortfalls hurt more than surpluses help), weighted by survival odds, reported as the steady yearly spend that would feel as good. |
+| 7 | **FI Surface** | [`FISurface.html`](FISurface.html) · [`fisurface.js`](fisurface.js) · [`fisurface-engine.js`](fisurface-engine.js) | Deterministic, closed-form surface | How many years to FI across every income and spending level, and what is each lever worth? Shows years to FI as a surface over income × expenses (a 3D view, a hover map, and a timeline of your portfolio by age crossing the FI number, with live income/expense sliders), the years saved per $1k less spending, per $1k more income and per 1% more return, and exports a **watertight, labeled STL** for 3D printing — raised iso-year contours, raised lines for your own income and expenses, and debossed or embossed labels with straight walls — plus a layer-by-layer filament color plan for single-nozzle printers (accent contour lines, year bands, colored base labels). |
 
 The first two are deterministic engines that give you a single, exact trajectory and
 build intuition. The Stress Tester adds uncertainty: it samples real historical
@@ -66,6 +67,7 @@ principles. The compiled PDFs and their LaTeX sources live in [`docs/`](docs/).
 | [003 — The Stochastic Retirement Framework](docs/003-stochastic-retirement-framework.pdf) | I.i.d. lognormal returns, percentile retirement dates in closed form (Fenton–Wilkinson), and how the analytical model and the Monte Carlo engine cross-check each other. Underpins the Stress Tester. |
 | [004 — Optimal Transfer Cadence under Flat Fees](docs/004-optimal-transfer-cadence-under-flat-fees.pdf) | The fee-versus-idle-cash trade-off: the closed-form value of any transfer schedule, an exact day-resolution dynamic program for the optimum, the unimodal sweet spot, and the idle-cash threshold rule. Underpins the HSA Transfer Optimizer. |
 | [005 — Spending Strategies and Quality of Life](docs/005-spending-strategies-and-quality-of-life.pdf) | Every calculation behind the Strategy Lab: the year-by-year kernel (balances floored at $0), the five spending rules, the target-anchored happiness score with survival weights and leftover-money value, its certainty-equivalent summary, and the dynamic program (with validation) that solves for the optimal policy. Underpins the Spending Strategy Lab. |
+| [006 — The Years-to-FI Surface](docs/006-the-years-to-fi-surface.pdf) | The closed form in a version that stays exact at zero savings and zero return, the already-FI / reachable / never regions, why every iso-year contour is a straight line through one focal point, analytic sensitivities (including the exact exchange rate between a dollar of spending and a dollar of income), and how the surface becomes a printable model: constant-width ridges, rasterized debossed labels, and a closed mesh. Underpins the FI Surface. |
 
 LaTeX sources, the plot-generation scripts (`generate_plot*.py`), and the generated
 figures are in [`docs/src_docs/`](docs/src_docs/).
@@ -141,6 +143,9 @@ The custom domain is configured via `CNAME` and the Cloudflare dashboard.
 ├── HSATransfer.html                # Tool 4 — HSA Transfer Optimizer
 ├── hsa.js
 ├── hsa-engine.js                   # HSA optimizer math (also unit-tested under Node)
+├── FISurface.html                  # Tool 7 — Years-to-FI Surface + 3D print
+├── fisurface.js
+├── fisurface-engine.js             # FI surface math, print heightmap, labels, STL (also unit-tested under Node)
 ├── styles.css                      # Shared styles for all tools
 ├── docs/                           # Whitepapers (PDF) + sources
 │   ├── 001-the-pure-math-of-financial-freedom.pdf
@@ -148,6 +153,7 @@ The custom domain is configured via `CNAME` and the Cloudflare dashboard.
 │   ├── 003-stochastic-retirement-framework.pdf
 │   ├── 004-optimal-transfer-cadence-under-flat-fees.pdf
 │   ├── 005-spending-strategies-and-quality-of-life.pdf
+│   ├── 006-the-years-to-fi-surface.pdf
 │   └── src_docs/                   # LaTeX sources, plot scripts, figures
 ├── CNAME                           # Custom domain for Cloudflare
 ├── wrangler.jsonc                  # Cloudflare deployment config

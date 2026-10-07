@@ -1,0 +1,11 @@
+# Not part of the website: keep out of `wrangler deploy` (assets directory is ".")
+.git
+.venv
+.wrangler
+node_modules
+files
+test
+docs/src_docs
+README.md
+requirements.txt
+wrangler.jsonc
