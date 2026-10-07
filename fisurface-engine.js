@@ -122,6 +122,9 @@
         contourRidge: { width: 1.2, height: 1.0 },
         contourFillMm: 8,
         youRidge:     { width: 1.6, height: 1.4 },
+        // a raised dot where your lines cross: a level-topped disc, its top this far above the
+        // highest surface under it (null = no dot)
+        youMarker:    { diameterMm: 8, heightMm: 3 },
         gridRidge:    { width: 0.8, height: 0.5 },
         labelGap: 0.8,                                  // clearance between a label and any ridge
         textMode: 'deboss', textDepthMm: 0.6,           // 'deboss' | 'emboss' | 'none'
@@ -130,6 +133,7 @@
         incomeTitle: 'INCOME ($/YR)', expenseTitle: 'EXPENSES ($/YR)',
         caption: true, captionText: '', youLabel: 'YOU', tickLabels: true,
         captionDate: '',            // e.g. 'OCT 2026': the dollars are that month's (real) dollars
+        siteText: '',               // e.g. 'MONEYPLOTLABS.COM': small, on the right (or back) ledge
     };
 
     const TEXT_GAP = 1.5;      // mm between the plot edge, tick labels and titles
@@ -248,6 +252,19 @@
                                    top: along(p.youRidge.height, youX, null) }, p.youRidge));
         lines.push(Object.assign({ kind: 'youExpenses', value: p.youExpenses, dist: (x, y) => y - youY,
                                    top: along(p.youRidge.height, null, youY) }, p.youRidge));
+        // Your dot: a disc with vertical walls and a level top on a layer boundary. It may rise
+        // above the plateau (if you are on it); nothing else does.
+        const mk = p.youMarker && p.youMarker.diameterMm > 0 && inPlot(youX, youY) ? p.youMarker : null;
+        const mkR = mk ? mk.diameterMm / 2 : 0;
+        let mkTop = 0;
+        if (mk) {
+            let hi = -Infinity;
+            for (let v = -mkR; v <= mkR + 1e-9; v += 0.25) for (let u = -mkR; u <= mkR + 1e-9; u += 0.25) {
+                const x = Math.min(ml + W, Math.max(ml, youX + u)), y = Math.min(mf + D, Math.max(mf, youY + v));
+                if (u * u + v * v <= mkR * mkR) hi = Math.max(hi, surfaceAt(x, y));
+            }
+            mkTop = snapToLayer(hi + mk.heightMm, p);
+        }
         const keep = 1.5;           // no grid ridge on the plot edge or hugging a "you" line
         for (const t of ticks(I0, I1, p.incomeStep)) {
             const tx = toX(t);
@@ -309,17 +326,27 @@
                         }
                     }
                 }
+                // your dot: traced like a contour shape (its edge is ½ of the field), and it wins
+                // over any shape it overlaps
+                let inDot = false;
+                if (mk) {
+                    const sDot = mkR - Math.hypot(x - youX, y - youY);
+                    if (sDot > 0) { sBest = Math.min(50, sDot); inDot = true; }
+                    else sBest = Math.max(sBest, sDot);
+                    if (sDot > -(pad + p.labelGap)) blocked = true;
+                }
                 // nothing rises above the plateau: it stays flat, and lines that run into it
                 // level off into it (your lines and the grid mean nothing past the cap)
                 zOut[k] = Math.max(z[k], Math.min(other, zCap));
                 bandField[k] = 0.5 + sBest;
-                bandZ[k] = Math.min(zCap, Math.max(shapeZ, other));
-                z[k] = Math.max(base, Math.min(raised, zCap));
+                bandZ[k] = inDot ? mkTop : Math.min(zCap, Math.max(shapeZ, other));
+                z[k] = inDot ? mkTop : Math.max(base, Math.min(raised, zCap));
                 surfaceOk[k] = !blocked && x > ml + keep && x < ml + W - keep && y > mf + keep && y < mf + D - keep ? 1 : 0;
             }
         }
 
         return { p, nx, ny, cell, z, zOut, bandField, bandZ, plot, lines, surfaceOk, onGrid, toX, toY, zCap,
+                 marker: mk ? { x: youX, y: youY, r: mkR, top: mkTop } : null,
                  widthMm: (nx - 1) * cell, depthMm: (ny - 1) * cell };
     }
 
@@ -493,6 +520,13 @@
             if (!(sz >= ts * 0.75 && putBest(backCaption, sz, cands, onLedge, (fp, x) => Math.abs(x - ml - W / 2))))
                 skipped.push(backCaption);
         }
+        if (p.siteText) {                                      // right ledge from the front, else the back ledge
+            const sz = Math.min(ts * 0.75, mr - 2), w = measure(p.siteText, sz), cands = [];
+            for (let y = mf + w / 2; y <= mf + D - w / 2 + 1e-9; y += 1) cands.push([ml + W + mr / 2, y, 90]);
+            for (let x = ml + W - w / 2; x >= ml + w / 2 - 1e-9; x -= 1) cands.push([x, mf + D + mb / 2, 0]);
+            if (!(sz >= 3 && putBest(p.siteText, sz, cands, onLedge, (fp, x, y) => (y - mf) + (ml + W - x) + (y > mf + D ? D : 0))))
+                skipped.push(p.siteText);
+        }
         return { labels, skipped };
     }
 
@@ -523,8 +557,10 @@
     //   text = { field, offset } — letters (field ≥ ½) moved by offset mm (− deboss, + emboss)
     //   band = { field, z }      — contour shelves/steps (field ≥ ½) at heights z
     // Every printed layer of a letter or a contour edge then sits exactly on the one below.
+    // Where a wall would have no height (a shelf's edge on its own line, a step's top meeting
+    // the slope), its two vertices are one, so the mesh has no zero-area triangles.
     function buildMesh(z, nx, ny, cell, text, band) {
-        const N = nx * ny, cx = nx - 1, cy = ny - 1, ISO = 0.5;
+        const N = nx * ny, cx = nx - 1, cy = ny - 1, ISO = 0.5, WELD = 0.01;   // mm
         const TF = text && text.offset ? text.field : null, BF = band ? band.field : null;
 
         // class of each grid point: 0 surface, 1 letter, 2 contour shape
@@ -568,6 +604,7 @@
 
         const positions = new Float32Array((center + 1) * 3);
         const isLetter = new Uint8Array(center + 1);         // for previews: letter-layer vertices
+        const lowOf = new Int32Array(center + 1);             // a crossing's feature-layer vertex
         const setV = (i, x, y, zz) => { positions[3 * i] = x; positions[3 * i + 1] = y; positions[3 * i + 2] = zz; };
         for (let iy = 0, k = 0; iy < ny; iy++) {
             for (let ix = 0; ix < nx; ix++, k++) {
@@ -581,8 +618,11 @@
             const t = Math.min(0.95, Math.max(0.05, (ISO - Fa) / (Fb - Fa)));
             const x = xa + t * (xb - xa), y = ya + t * (yb - ya);
             setV(i, x, y, z[a] + t * (z[b] - z[a]));
-            setV(i + 1, x, y, lowZ(c, a) + t * (lowZ(c, b) - lowZ(c, a)));
+            // letters follow the surface; a shape keeps its own level (its inside corner's height)
+            const zl = c === 1 ? lowZ(c, a) + t * (lowZ(c, b) - lowZ(c, a)) : lowZ(c, cls[a] ? a : b);
+            setV(i + 1, x, y, zl);
             isLetter[i + 1] = c === 1;
+            lowOf[i] = Math.abs(zl - positions[3 * i + 2]) < WELD ? i : i + 1;   // no wall here: weld
         };
         for (let iy = 0; iy < ny; iy++) for (let ix = 0; ix < cx; ix++) {
             const i = hIso[iy * cx + ix];
@@ -600,7 +640,9 @@
         // a cut cell needs at most 10 triangles (hexagon + 2 corners + 2 walls)
         const indices = new Uint32Array(3 * (2 * cx * cy + 8 * mixed + 3 * nb));
         let t = 0;
-        const tri = (a, b, c) => { indices[t++] = a; indices[t++] = b; indices[t++] = c; };
+        const tri = (a, b, c) => {                            // (skips walls with no height)
+            if (a !== b && b !== c && a !== c) { indices[t++] = a; indices[t++] = b; indices[t++] = c; }
+        };
         const fan = poly => { for (let i = 1; i + 1 < poly.length; i++) tri(poly[0], poly[i], poly[i + 1]); };
 
         for (let iy = 0; iy < cy; iy++) {
@@ -617,7 +659,7 @@
                 const ring = [];                               // {iso, inside, top, low}
                 for (let e = 0; e < 4; e++) {
                     ring.push({ iso: false, inside: ins[e], top: c[e], low: sh[c[e]] });
-                    if (ins[e] !== ins[(e + 1) % 4]) ring.push({ iso: true, top: iso[e], low: iso[e] + 1 });
+                    if (ins[e] !== ins[(e + 1) % 4]) ring.push({ iso: true, top: iso[e], low: lowOf[iso[e]] });
                 }
                 // Saddle (two opposite corners inside): the side holding the cell center joins up.
                 const saddle = ring.length === 8;

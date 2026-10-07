@@ -102,6 +102,10 @@
                     <input type="number" id="in-expenses" class="manual-box" min="0" step="1000" value="60000">
                 </div>
                 <div class="control-hint">Drag either slider and watch the Timeline: the FI date moves instantly.</div>
+                <label class="check-row" title="Fills in the Surface Window fields with their current values">
+                    <input type="checkbox" id="in-lockaxes">
+                    <span>Lock axes: income and expense changes only move your lines</span>
+                </label>
             </div>
             <div class="control-group">
                 <label class="control-label">Your Age</label>
@@ -153,7 +157,8 @@
             <div class="section-divider">
                 <label class="control-label">Surface Window</label>
                 <div class="control-hint">Blank fields fit themselves to your income and expenses (shown as
-                    placeholders). Type a value to fix it; clear it to go back to auto.</div>
+                    placeholders). Type a value to fix it; clear it to go back to auto. Lock axes (above) fixes them all
+                    at once.</div>
                 <div class="fis-grid">
                     <label class="control-label-sm">Income from<input type="number" id="in-imin" min="0" step="10000" value="" placeholder="auto"></label>
                     <label class="control-label-sm">to<input type="number" id="in-imax" min="0" step="10000" value="" placeholder="auto"></label>
@@ -262,6 +267,8 @@
                 </div>
                 <label class="check-row"><input type="checkbox" id="in-showticks" checked> Tick labels</label>
                 <label class="check-row"><input type="checkbox" id="in-showcaption" checked> Caption</label>
+                <label class="check-row"><input type="checkbox" id="in-youdot" checked> Raised dot where your lines cross</label>
+                <label class="check-row"><input type="checkbox" id="in-site" checked> moneyplotlabs.com on the right ledge</label>
                 <div class="control-hint">
                     Leave a title empty to drop it. The ledges grow or shrink to fit the text. Each line's label goes
                     on its flattest free stretch; a contour with no room is labeled on the back or right ledge where

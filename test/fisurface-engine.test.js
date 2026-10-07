@@ -28,6 +28,9 @@ function simulateYears(I, X, R, S, P0) {
 // A deterministic stand-in for canvas text measurement: 0.62 em per character.
 const measure = (text, size) => 0.62 * size * text.length;
 
+// Is (x, y) on (or right beside) the raised dot where your lines cross?
+const nearDot = (m, x, y, pad = 0.5) => !!m.marker && Math.hypot(x - m.marker.x, y - m.marker.y) < m.marker.r + pad;
+
 describe('yearsToFI', () => {
     test('matches a year-by-year simulation (exact at whole years, within a year between)', () => {
         let seed = 7;
@@ -173,7 +176,7 @@ describe('printability', () => {
                 let inside = 0;
                 for (let iy = 0; iy < model.ny; iy++) for (let ix = 0; ix < model.nx; ix++) {
                     const k = iy * model.nx + ix, x = ix * model.cell, y = iy * model.cell;
-                    if (!model.plot[k] || others.some(o => Math.abs(o.dist(x, y)) <= o.width / 2 + 0.01)) continue;
+                    if (!model.plot[k] || nearDot(model, x, y) || others.some(o => Math.abs(o.dist(x, y)) <= o.width / 2 + 0.01)) continue;
                     const d = ln.dist(x, y);
                     if (d > 0.05 && d < 1.5) close(model.z[k], plain.z[k], 1e-5, 'downhill of the line is untouched');
                     if (d > 0 || d < -ln.width) continue;
@@ -428,7 +431,9 @@ describe('contour shape edges', () => {
             const x = P[3 * v], y = P[3 * v + 1], zz = P[3 * v + 2];
             const offGrid = Math.abs(x / cell - Math.round(x / cell)) > 1e-4 || Math.abs(y / cell - Math.round(y / cell)) > 1e-4;
             const ln = contours.find(l => Math.abs(zz - l.zLine) < 1e-3);
-            if (!offGrid || !ln) continue;                    // a shelf-floor crossing
+            const { marginLeft: ml, marginFront: mf, widthMm: W, depthMm: D } = m.p;
+            const border = x < ml + cell || x > ml + W - cell || y < mf + cell || y > mf + D - cell;   // (shelf meets the plot's edge)
+            if (!offGrid || !ln || border || nearDot(m, x, y)) continue;   // a shelf-floor crossing
             const d = ln.dist(x, y);
             assert.ok(Math.min(Math.abs(d), Math.abs(d + ln.width)) < 0.06 * cell,   // (crossings stay 5% of a cell off the corners)
                  `crossing ${Math.min(Math.abs(d), Math.abs(d + ln.width)).toFixed(3)} mm off the ${ln.value}-year shelf edge`);
@@ -457,6 +462,73 @@ describe('contour shape edges', () => {
             const traced = F.checkClosed(meshOf(m)).volume, grid = F.checkClosed(F.buildMesh(m.z, m.nx, m.ny, m.cell)).volume;
             close(traced / grid, 1, 0.01, shape);
         }
+    });
+});
+
+describe('mesh quality', () => {
+    test('no zero-area triangles: walls with no height are welded shut, and it stays watertight', () => {
+        for (const shape of ['shelf', 'step', 'none']) {
+            const m = F.buildModel({ cellMm: 0.5, contourShape: shape });
+            const mesh = F.buildMesh(m.zOut, m.nx, m.ny, m.cell, null, { field: m.bandField, z: m.bandZ });
+            const P = mesh.positions, T = mesh.indices;
+            let flat = 0;
+            for (let t = 0; t < T.length; t += 3) {
+                const a = 3 * T[t], b = 3 * T[t + 1], c = 3 * T[t + 2];
+                const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+                const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+                if (Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2 < 1e-5) flat++;
+            }
+            assert.equal(flat, 0, shape);
+            assert.ok(F.checkClosed(mesh).manifold, shape);
+        }
+    });
+});
+
+describe('your dot', () => {
+    const m = F.buildModel({ cellMm: 0.25, contourShape: 'shelf' });
+    const at = (x, y) => m.z[Math.round(y / m.cell) * m.nx + Math.round(x / m.cell)];
+
+    test('a level disc on a layer boundary, standing above everything around it', () => {
+        const { x, y, r, top } = m.marker;
+        close((top - 0.2) / 0.2, Math.round((top - 0.2) / 0.2), 1e-6, 'top on a layer');
+        for (let a = 0; a < 360; a += 15) {
+            const c = Math.cos(a * Math.PI / 180), s = Math.sin(a * Math.PI / 180);
+            for (const f of [0, 0.3, 0.6, 0.85]) close(at(x + f * r * c, y + f * r * s), top, 1e-4, 'level top');
+            assert.ok(at(x + (r + 1) * c, y + (r + 1) * s) < top - 1, 'stands at least 1 mm proud (uphill, on your line)');
+        }
+    });
+
+    test('its edge is traced as a circle, watertight', () => {
+        const m = F.buildModel({ cellMm: 0.25, contourShape: 'none' });     // (no shelf beside it)
+        const mesh = F.buildMesh(m.zOut, m.nx, m.ny, m.cell, null, { field: m.bandField, z: m.bandZ });
+        const P = mesh.positions, { x, y, r, top } = m.marker;
+        let n = 0;
+        for (let v = mesh.topVertices; v < mesh.textEnd; v++) {
+            const offGrid = [P[3 * v], P[3 * v + 1]].some(c => Math.abs(c / m.cell - Math.round(c / m.cell)) > 1e-4);
+            if (!offGrid || Math.abs(P[3 * v + 2] - top) > 1e-4) continue;    // a crossing on the dot's top
+            const d = Math.hypot(P[3 * v] - x, P[3 * v + 1] - y);
+            if (d > r - 0.3) { assert.ok(Math.abs(d - r) < 0.06 * m.cell + 0.01, `edge ${d.toFixed(3)} vs ${r}`); n++; }
+        }
+        assert.ok(n > 50, 'checked ' + n);
+        assert.ok(F.checkClosed(mesh).manifold);
+    });
+
+    test('labels keep clear of it; youMarker null leaves no dot', () => {
+        const { x, y, r } = m.marker;
+        for (const l of F.layoutLabels(m, measure).labels)
+            assert.ok(Math.hypot(l.x - x, l.y - y) > r + l.size * 0.4, l.text);
+        assert.equal(F.buildModel({ cellMm: 1, youMarker: null }).marker, null);
+    });
+});
+
+describe('site label', () => {
+    test('on the right ledge near the front, only when set', () => {
+        const m = F.buildModel({ cellMm: 0.5, siteText: 'MONEYPLOTLABS.COM' });
+        const l = F.layoutLabels(m, measure).labels.find(l => l.text === 'MONEYPLOTLABS.COM');
+        assert.ok(l, 'placed');
+        assert.equal(l.angle, 90);
+        assert.ok(l.x > m.p.marginLeft + m.p.widthMm && l.y < m.p.marginFront + m.p.depthMm / 2);
+        assert.ok(!F.layoutLabels(F.buildModel({ cellMm: 0.5 }), measure).labels.some(l => l.text.includes('MONEYPLOT')));
     });
 });
 
