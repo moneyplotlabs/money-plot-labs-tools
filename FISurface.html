@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Years-to-FI Surface + 3D Print | Money Plot Labs</title>
+    <meta name="description" content="See how many years until financial independence across every income and spending level, what each lever is worth, and download a labeled, 3D-printable STL of the surface. Runs entirely in your browser.">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Years-to-FI Surface + 3D Print">
+    <meta property="og:description" content="Years to financial independence as a surface over income and expenses, with a printable STL: raised contour lines, your own income and spending, and debossed labels.">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="container">
+    <h2>Money Plot Labs: Years-to-FI Surface</h2>
+
+    <div class="metrics-grid metrics-grid-4">
+        <div class="metric-card">
+            <div class="metric-label">Years to FI</div>
+            <div id="metric-years" class="metric-value">–</div>
+            <div id="metric-years-sub" class="metric-subvalue"></div>
+        </div>
+        <div class="metric-card blue">
+            <div class="metric-label" title="How many years sooner you reach FI for each $1,000/yr you stop spending">$1k/yr Less Spending</div>
+            <div id="metric-spend" class="metric-value">–</div>
+            <div id="metric-spend-sub" class="metric-subvalue"></div>
+        </div>
+        <div class="metric-card blue">
+            <div class="metric-label" title="How many years sooner you reach FI for each $1,000/yr of extra after-tax income you save">$1k/yr More Income</div>
+            <div id="metric-income" class="metric-value">–</div>
+            <div class="metric-subvalue">years sooner</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label" title="How many years sooner you reach FI if your real return is one percentage point higher">+1% Real Return</div>
+            <div id="metric-return" class="metric-value">–</div>
+            <div class="metric-subvalue">years sooner</div>
+        </div>
+    </div>
+
+    <div class="layout-split">
+
+        <!-- Viewer -->
+        <div>
+            <div class="chart-header fis-header">
+                <div class="segmented-toggle fis-view-toggle" id="view-toggle">
+                    <button type="button" class="seg-btn active" data-view="print">3D Print Preview</button>
+                    <button type="button" class="seg-btn" data-view="map">Map</button>
+                    <button type="button" class="seg-btn" data-view="time">Timeline</button>
+                </div>
+                <div class="fis-actions">
+                    <select id="in-colors" class="fis-color-mode" title="Preview colors">
+                        <option value="filament" selected>Colors: filament</option>
+                        <option value="height">Colors: by height</option>
+                    </select>
+                    <button class="btn-lock" id="btn-order" hidden>Order a Print</button>
+                    <button class="btn-lock" id="btn-download">Download STL</button>
+                </div>
+            </div>
+            <div id="order-help" class="fis-order-help" hidden></div>
+            <div class="chart-container fis-viewer">
+                <div id="view-print" class="fis-pane"></div>
+                <div id="view-time" class="fis-pane fis-time-pane" hidden>
+                    <canvas id="time-chart"></canvas>
+                </div>
+                <div id="view-map" class="fis-pane" hidden>
+                    <canvas id="map-canvas"></canvas>
+                    <div id="map-tip" class="fis-tip" hidden></div>
+                </div>
+                <div id="viewer-msg" class="chart-loader"><span class="placeholder-text">Building surface…</span></div>
+            </div>
+            <div id="print-stats" class="control-hint fis-stats"></div>
+            <div id="order-note" class="control-hint fis-stats"></div>
+            <p class="control-note">
+                Height is <strong>years to FI</strong>. A step or shelf marks every <span id="note-step">5</span> years, starting
+                exactly on its line. Raised lines mark your own income and expenses (taller) and each grid tick. The flat top is the cap: at or beyond
+                <span id="note-cap">30</span> years, including spending levels that <strong>never</strong> reach FI.
+                Every contour is a straight line, and they all fan out from one point. Drag to orbit, scroll to zoom.
+                <strong>Filament</strong> colors show your print as planned: each color change is a whole layer, so
+                it shows as a horizontal band (3D Print Settings → Colors). <strong>By height</strong> shades the
+                surface by years instead, which is easier for reading values off it.
+            </p>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+
+            <div class="control-group">
+                <label class="control-label">Income ($/yr, after tax)</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-income" min="0" max="500000" step="1000" value="100000">
+                    <input type="number" id="in-income" class="manual-box" min="0" step="1000" value="100000">
+                </div>
+            </div>
+            <div class="control-group">
+                <label class="control-label">Expenses ($/yr)</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-expenses" min="0" max="300000" step="1000" value="60000">
+                    <input type="number" id="in-expenses" class="manual-box" min="0" step="1000" value="60000">
+                </div>
+                <div class="control-hint">Drag either slider and watch the Timeline: the FI date moves instantly.</div>
+            </div>
+            <div class="control-group">
+                <label class="control-label">Your Age</label>
+                <input type="number" id="in-age" min="0" max="100" step="1" value="35">
+            </div>
+            <div class="control-group">
+                <label class="control-label">Timeline Dollars</label>
+                <div class="segmented-toggle" id="dollar-toggle">
+                    <button type="button" class="seg-btn active" data-mode="real">Today's $ (Real)</button>
+                    <button type="button" class="seg-btn" data-mode="nominal">Future $ (Nominal)</button>
+                </div>
+            </div>
+            <div class="control-group" id="inflation-group" style="display:none;">
+                <label class="control-label" id="label-inflation">Assumed Inflation Rate: 3.0%</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-inflation" min="0" max="8" step="0.1" value="3">
+                    <input type="number" id="in-inflation" class="manual-box" min="0" max="20" step="0.1" value="3">
+                </div>
+                <p class="control-note">
+                    Future $ (nominal) applies only to the <strong>Timeline</strong>. All inputs, the map and the 3D
+                    model stay in <strong>today's dollars</strong>, so the FI number grows with inflation on the chart
+                    while the FI date stays the same.
+                </p>
+                <label class="check-row">
+                    <input type="checkbox" id="in-bp" checked>
+                    <span>Show equal-buying-power curves (constant today's $)</span>
+                </label>
+            </div>
+            <div class="control-group">
+                <label class="control-label">Portfolio Today ($)</label>
+                <input type="number" id="in-portfolio" min="0" step="10000" value="250000">
+            </div>
+            <div class="control-group">
+                <label class="control-label" id="label-return">Real Return: 5.0%</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-return" min="0" max="12" step="0.1" value="5">
+                    <input type="number" id="in-return" class="manual-box" min="0" max="20" step="0.1" value="5">
+                </div>
+            </div>
+            <div class="control-group">
+                <label class="control-label" id="label-swr">Safe Withdrawal Rate: 4.0%</label>
+                <div class="interactive-row">
+                    <input type="range"  id="slider-swr" min="2" max="6" step="0.1" value="4">
+                    <input type="number" id="in-swr" class="manual-box" min="0.5" max="10" step="0.1" value="4">
+                </div>
+                <div class="control-hint">FI number = expenses ÷ withdrawal rate.</div>
+            </div>
+
+            <div class="section-divider">
+                <label class="control-label">Surface Window</label>
+                <div class="control-hint">Blank fields fit themselves to your income and expenses (shown as
+                    placeholders). Type a value to fix it; clear it to go back to auto.</div>
+                <div class="fis-grid">
+                    <label class="control-label-sm">Income from<input type="number" id="in-imin" min="0" step="10000" value="" placeholder="auto"></label>
+                    <label class="control-label-sm">to<input type="number" id="in-imax" min="0" step="10000" value="" placeholder="auto"></label>
+                    <label class="control-label-sm">Expenses from<input type="number" id="in-xmin" min="0" step="10000" value="" placeholder="auto"></label>
+                    <label class="control-label-sm">to<input type="number" id="in-xmax" min="0" step="10000" value="" placeholder="auto"></label>
+                    <label class="control-label-sm">Cap (years)<input type="number" id="in-cap" min="5" max="80" step="5" value="" placeholder="auto"></label>
+                    <label class="control-label-sm">Contour every (yrs)<input type="number" id="in-cstep" min="1" max="20" step="1" value="" placeholder="auto"></label>
+                </div>
+            </div>
+
+            <div class="advanced-toggle" id="print-button">
+                <span>3D Print Settings</span>
+                <svg class="chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+            <div class="advanced-content" id="print-panel">
+                <div class="fis-grid">
+                    <label class="control-label-sm">Income scale (mm per $10k)<input type="number" id="in-iscale" min="0.5" max="100" step="0.5" value="" placeholder="auto"></label>
+                    <label class="control-label-sm">Expense scale (mm per $10k)<input type="number" id="in-xscale" min="0.5" max="100" step="0.5" value="" placeholder="same"></label>
+                    <label class="control-label-sm">Height at cap (mm)<input type="number" id="in-height" min="5" max="200" step="5" value="60"></label>
+                    <label class="control-label-sm">Base (mm)<input type="number" id="in-base" min="1" max="10" step="0.2" value="2.4"></label>
+                    <label class="control-label-sm">Income grid ($)<input type="number" id="in-istep" min="1000" step="5000" value="" placeholder="auto"></label>
+                    <label class="control-label-sm">Expense grid ($)<input type="number" id="in-xstep" min="1000" step="5000" value="" placeholder="auto"></label>
+                    <label class="control-label-sm">Labels
+                        <select id="in-text">
+                            <option value="deboss" selected>Debossed (cut in)</option>
+                            <option value="emboss">Embossed (raised)</option>
+                            <option value="none">None</option>
+                        </select>
+                    </label>
+                    <label class="control-label-sm">Text depth (mm)<input type="number" id="in-tdepth" min="0.2" max="2" step="0.1" value="0.6"></label>
+                    <label class="control-label-sm">Nozzle
+                        <select id="in-nozzle">
+                            <option value="0.6" selected>0.6 mm: larger text, prints on any nozzle</option>
+                            <option value="0.4">0.4 mm: finer text, needs 0.4 or smaller</option>
+                        </select>
+                    </label>
+                    <label class="control-label-sm">STL resolution
+                        <select id="in-cell">
+                            <option value="0.35">Draft (0.35 mm)</option>
+                            <option value="0.25" selected>Standard (0.25 mm)</option>
+                            <option value="0.2">Fine (0.2 mm)</option>
+                            <option value="0.15">Extra fine (0.15 mm, large file)</option>
+                        </select>
+                    </label>
+                    <label class="control-label-sm">Line label size (mm)<input type="number" id="in-tsize" min="3" max="10" step="0.5" value="" placeholder="auto"></label>
+                    <label class="control-label-sm">Layer height (mm)<input type="number" id="in-layer" min="0" max="1" step="0.04" value="0.2"></label>
+                    <label class="control-label-sm">First layer (mm)<input type="number" id="in-first" min="0.04" max="1" step="0.04" value="0.2"></label>
+                    <label class="control-label-sm">Bed width (mm)<input type="number" id="in-bedx" min="50" max="1000" step="5" value="250"></label>
+                    <label class="control-label-sm">Bed depth (mm)<input type="number" id="in-bedy" min="50" max="1000" step="5" value="210"></label>
+                    <label class="control-label-sm">Max height (mm)<input type="number" id="in-bedz" min="20" max="1000" step="5" value="210"></label>
+                </div>
+                <div class="control-hint">
+                    Nozzle sets the default text sizes and line widths so every feature prints cleanly; orders are printed
+                    with a 0.6 mm nozzle. For PrusaSlicer, use Arachne perimeters and 0.2 mm layers.
+                    The same scale on both axes (the default) puts a dollar of income and a dollar of spending the same
+                    distance apart, so the slopes compare fairly. Match layer heights to your slicer: each iso-year line
+                    prints level with its top on a layer boundary, and the base, plot step and text depth are whole layers.
+                    Set layer height to 0 to turn this off. The bed defaults to a Prusa MK3S+ (250 × 210 × 210 mm). The
+                    preview is a quick draft; the STL is built at its own resolution when you download it, with letter
+                    outlines traced inside each grid cell.
+                </div>
+
+                <label class="control-label">Colors (filament swaps)</label>
+                <div class="fis-grid">
+                    <label class="control-label-sm">Contours
+                        <select id="in-ccontours">
+                            <option value="none">One color</option>
+                            <option value="lines" selected>Accent line on each</option>
+                            <option value="bands">Alternating year bands</option>
+                        </select>
+                    </label>
+                    <label class="control-label-sm">Contour shape
+                        <select id="in-cshape">
+                            <option value="auto" selected>Auto (suits the colors)</option>
+                            <option value="step">Raised step</option>
+                            <option value="shelf">Cut shelf</option>
+                            <option value="none">None (color only)</option>
+                        </select>
+                    </label>
+                    <label class="control-label-sm">Body color (PLA)<select id="in-cbody"></select></label>
+                    <label class="control-label-sm">Accent color (PLA)<select id="in-caccent"></select></label>
+                </div>
+                <label class="check-row"><input type="checkbox" id="in-clabels" checked> Accent color for the base labels</label>
+                <div id="filament-note" class="control-hint"></div>
+                <div id="color-plan" class="control-hint fis-plan-box"></div>
+                <div class="control-hint">
+                    A single-nozzle printer can only change color between layers, and here height is years. So a swap at
+                    a contour's height colors exactly along that iso-year line. Every contour shape starts at its line
+                    and sits uphill of it. A <strong>raised step</strong> is a cliff up from the line to a level top,
+                    filled to the slope: you can feel it, and it reads in one color. A <strong>cut shelf</strong> is a
+                    level notch at exactly the line's height. Its floor takes the accent as an even 1.2 mm line.
+                    <strong>None</strong> leaves the surface alone: with alternating bands, the color change itself
+                    is the line. Auto picks step for one color, shelf for accent lines, and none for bands. In
+                    PrusaSlicer, drag the layer slider to each Z and click + to add a color change. Labels on the
+                    surface sit at many heights, so they print in whatever color their layer has.
+                </div>
+
+                <label class="control-label">Base Labels</label>
+                <div class="fis-grid">
+                    <label class="control-label-sm">Income axis title<input type="text" id="in-ititle" maxlength="40" value="INCOME ($/YR)"></label>
+                    <label class="control-label-sm">Expenses axis title<input type="text" id="in-xtitle" maxlength="40" value="EXPENSES ($/YR)"></label>
+                    <label class="control-label-sm">Caption<input type="text" id="in-caption" maxlength="60" value="" placeholder="auto: return, SWR, portfolio"></label>
+                    <label class="control-label-sm">Your lines' prefix<input type="text" id="in-you" maxlength="20" value="YOU"></label>
+                    <label class="control-label-sm">Tick label size (mm)<input type="number" id="in-ticksize" min="3" max="10" step="0.5" value="" placeholder="auto"></label>
+                    <label class="control-label-sm">Title size (mm)<input type="number" id="in-titlesize" min="3" max="12" step="0.5" value="" placeholder="auto"></label>
+                </div>
+                <label class="check-row"><input type="checkbox" id="in-showticks" checked> Tick labels</label>
+                <label class="check-row"><input type="checkbox" id="in-showcaption" checked> Caption</label>
+                <div class="control-hint">
+                    Leave a title empty to drop it. The ledges grow or shrink to fit the text. Each line's label goes
+                    on its flattest free stretch; a contour with no room is labeled on the back or right ledge where
+                    it leaves the plot. Text is cut with straight walls and a flat floor, so letters stack cleanly
+                    layer by layer. Fine resolution gives smoother letter edges. Print flat, no supports.
+                </div>
+            </div>
+
+        </div><!-- /controls -->
+    </div><!-- /layout-split -->
+
+    <div class="doc-footer">
+        <div class="doc-notes">
+            <p>
+                <strong>What this does:</strong> for every combination of income and expenses in the window, it
+                computes how many years until your portfolio reaches your FI number (expenses ÷ withdrawal rate). Each
+                year the portfolio earns the real return and you add what you save (income − expenses). The result is a
+                surface you can explore, and print.
+            </p>
+            <p>
+                <strong>Method:</strong> the years have a closed form, n = ln(1 + R·gap/u) / ln(1+R), where gap is how far
+                you are from your FI number and u is the portfolio's first-year growth. Below the n = 0 line you are
+                already FI. Beyond the line where spending eats all growth (expenses = income + R × portfolio) you never get
+                there. In between, every iso-year line is straight, and all of them pass through one focal point. So a
+                dollar of spending is always worth more than a dollar of income. It cuts savings the same way, and it
+                also raises the FI number by 1/withdrawal-rate dollars.
+            </p>
+            <p>
+                <strong>Note:</strong> an illustrative model, not financial advice. It assumes a constant real return,
+                steady income and spending, and no taxes on withdrawals. The stress tester (tool 3) shows how market
+                volatility changes the answer.
+            </p>
+        </div>
+        <div class="doc-links">
+            <a href="./docs/006-the-years-to-fi-surface.pdf" target="_blank" class="btn-doc">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                FI Surface Whitepaper (PDF)
+            </a>
+        </div>
+    </div>
+
+    <nav class="tools-nav">
+        <a href="index.html" class="nav-item" title="Static, Closed-form calculus">
+            1. Macro Sandbox
+            <span>High-level Engine</span>
+        </a>
+        <a href="LifepathCashFlowSimulator.html" class="nav-item" title="Static, Year-by-year lookup">
+            2. Cash Flow Planner
+            <span>Variable Yearly Flow</span>
+        </a>
+        <a href="StressTester.html" class="nav-item" title="Stochastic, Lifepath engine">
+            3. Stress Tester
+            <span>Lifepath Volatility</span>
+        </a>
+        <a href="HSATransfer.html" class="nav-item" title="HSA transfer-fee optimization">
+            4. HSA Transfer
+            <span>Fee Optimization</span>
+        </a>
+        <a href="RothOptimizer.html" class="nav-item" title="Roth vs. Traditional bucket strategy">
+            5. Roth Optimizer
+            <span>Bucket Strategy</span>
+        </a>
+        <a href="StrategyLab.html" class="nav-item" title="Withdrawal strategies scored by quality of life">
+            6. Strategy Lab (Beta)
+            <span>Spending Strategies</span>
+        </a>
+        <a href="#" class="nav-item active" title="Years to FI over income and expenses, with a 3D-printable STL">
+            7. FI Surface
+            <span>Sensitivity + 3D Print</span>
+        </a>
+    </nav>
+
+</div><!-- /container -->
+
+<script src="common.js"></script>
+<script src="fisurface-engine.js"></script>
+<script src="fisurface.js"></script>
+<footer class="site-footer">
+    Money Plot Labs · <a href="https://docs.google.com/forms/d/e/1FAIpQLSdMDJYC1tLzpVimhVExzzZspFVAxCYKDUOZnlokIErD3mrQsw/viewform?usp=pp_url&amp;entry.2075267935=FI+Surface" target="_blank" rel="noopener noreferrer">Send feedback</a>
+</footer>
+</body>
+</html>

@@ -903,3 +903,70 @@ input[type="range"]::-webkit-slider-thumb:hover {
     font-size: 0.8rem;
     color: var(--text-muted);
 }
+
+/* ============================================================
+   FI Surface (tool 7): 3D print preview + map
+   ============================================================ */
+.fis-viewer { padding: 0; overflow: hidden; }
+.fis-pane { position: absolute; inset: 0; }
+.fis-pane[hidden] { display: none; }
+.fis-pane canvas { display: block; width: 100%; height: 100%; }
+.fis-tip {
+    position: absolute;
+    pointer-events: none;
+    background: rgba(15, 23, 42, 0.92);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.fis-tip strong { color: var(--text-main); }
+.fis-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 12px;
+    margin-top: 8px;
+}
+.fis-grid label { display: flex; flex-direction: column; gap: 4px; }
+.fis-stats { margin: 6px 0 4px; }
+.fis-view-toggle .seg-btn { white-space: nowrap; padding: 8px 12px; }
+.fis-grid input[type="text"] {
+    background-color: var(--bg-color);
+    border: 1px solid var(--border);
+    color: var(--text-main);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+}
+.fis-grid input[type="text"]:focus { border-color: var(--accent-blue); }
+.fis-actions { display: flex; gap: 8px; align-items: center; }
+.fis-color-mode { width: auto; font-size: 0.8rem; padding: 6px 8px; }
+.fis-swatch {
+    display: inline-block; width: 0.9em; height: 0.9em; border-radius: 3px;
+    border: 1px solid var(--border); vertical-align: -0.1em;
+}
+.fis-plan { margin: 6px 0 0; padding-left: 20px; columns: 2; column-gap: 16px; }
+.fis-plan li { break-inside: avoid; }
+.fis-why { color: var(--text-muted); }
+.fis-plan-box { color: var(--text-main); }
+@media (max-width: 520px) { .fis-plan { columns: 1; } .fis-actions { flex-wrap: wrap; } }
+.fis-header { flex-wrap: wrap; gap: 8px; }
+.fis-actions { flex-wrap: wrap; justify-content: flex-end; }
+.fis-time-pane { padding: 10px 12px 8px; box-sizing: border-box; }
+.fis-actions .btn-lock { width: auto; }     /* size to the label ("Order a Print · $49", "Building … STL…") */
+.fis-actions .btn-lock.fis-needs-fix { background-color: #b45309; }      /* amber: needs a change to order */
+.fis-actions .btn-lock.fis-needs-fix:hover { background-color: #92400e; }
+.fis-order-help {
+    margin: 0 0 10px; padding: 10px 12px; font-size: 0.85rem; line-height: 1.45;
+    background: rgba(245, 158, 11, 0.10); border: 1px solid rgba(245, 158, 11, 0.45); border-radius: 8px;
+}
+.fis-order-help ul { margin: 6px 0 10px; padding-left: 20px; }
+.fis-order-help .btn-lock { width: auto; }
+.fis-order-help .control-hint { margin-top: 8px; }
+.fis-link-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; text-decoration: underline; font-size: 0.85rem; }
