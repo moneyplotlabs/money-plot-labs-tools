@@ -116,6 +116,43 @@ function buildBuyingPowerDatasets(levels, currentAge, infl, axisMin, axisMax) {
     });
 }
 
+// Faint dashed reference lines at the classic safe-withdrawal-rate FI numbers
+// (spending / 4% = 25×, spending / 3% ≈ 33×). Flat in real terms; in nominal mode
+// they inflate from the current age like the buying-power curves.
+const FI_RULES = [
+    { rate: 0.04, color: 'rgba(248, 250, 252, 0.45)', dash: [6, 4] },
+    { rate: 0.03, color: 'rgba(248, 250, 252, 0.25)', dash: [2, 4] },
+];
+
+function buildFiRuleDatasets(spending, nominal, currentAge, infl, axisMin, axisMax) {
+    if (!(spending > 0)) return [];
+    const lo = nominal ? Math.max(Math.floor(axisMin), currentAge) : axisMin;
+    const hi = nominal ? Math.ceil(axisMax) : axisMax;
+    return FI_RULES.map(rule => {
+        const level = spending / rule.rate;
+        const data = [];
+        if (nominal) {
+            for (let age = lo; age <= hi; age++) {
+                data.push({ x: age, y: level * Math.pow(1 + infl, age - currentAge), yReal: level });
+            }
+        } else {
+            data.push({ x: lo, y: level }, { x: hi, y: level });
+        }
+        return {
+            label:        Math.round(rule.rate * 100) + '% rule FI: ' + formatCurrency(level) + (nominal ? " (today's $)" : ''),
+            data,
+            borderColor:  rule.color,
+            borderDash:   rule.dash,
+            borderWidth:  1.5,
+            pointRadius:  0,
+            fill:         false,
+            tension:      0,
+            order:        9,
+            isReference:  true,
+        };
+    });
+}
+
 // ── Visualization ─────────────────────────────────────────────
 function updateVisualization() {
     let currentAge = parseInt(boxStartAge.value) || 0;
@@ -217,6 +254,7 @@ function updateVisualization() {
         }
     }
     const bpDatasets = buildBuyingPowerDatasets(bpLevels, currentAge, infl, axisMin, axisMax);
+    const refDatasets = buildFiRuleDatasets(b, nominal, currentAge, infl, axisMin, axisMax).concat(bpDatasets);
 
     // Buying-power curves grow past the nominal peak, so in nominal mode clip the
     // y-axis to the nominal peak (unless the user has locked a value). The curves
@@ -229,8 +267,8 @@ function updateVisualization() {
     if (chartInstance) {
         chartInstance.data.datasets[0].data  = accData;
         chartInstance.data.datasets[1].data  = depData;
-        chartInstance.data.datasets.splice(2);          // drop any prior buying-power lines
-        bpDatasets.forEach(ds => chartInstance.data.datasets.push(ds));
+        chartInstance.data.datasets.splice(2);          // drop any prior reference / buying-power lines
+        refDatasets.forEach(ds => chartInstance.data.datasets.push(ds));
         chartInstance.options.scales.x.min   = axisMin;
         chartInstance.options.scales.x.max   = axisMax;
         chartInstance.options.scales.y.max   = yMaxConstraint;
@@ -261,7 +299,7 @@ function updateVisualization() {
                         borderWidth:     3,
                         pointRadius:     0,
                     },
-                    ...bpDatasets,
+                    ...refDatasets,
                 ],
             },
             options: {
@@ -273,7 +311,7 @@ function updateVisualization() {
                         mode:      'nearest',
                         axis:      'x',
                         intersect: false,
-                        filter:    (item) => !item.dataset.isBuyingPower,
+                        filter:    (item) => !item.dataset.isBuyingPower && !item.dataset.isReference,
                         callbacks: {
                             title: (ctx) => 'Age ' + ctx[0].parsed.x.toFixed(1),
                             label: (ctx) => ctx.parsed.y !== null
