@@ -67,6 +67,17 @@ npm run test:coverage # run with line/branch/function coverage
   risk (Merton), no borrowing against future income, and beating every
   heuristic strategy on the same seeded Monte Carlo.
 
+- **`fisurface-engine.test.js`** — the years-to-FI surface (Whitepaper 006): the
+  closed form against a year-by-year simulation, exact integer-year crossings, the
+  already-FI / never regions, the `I = X` and `R → 0` limits, every point on a
+  contour line `X = X* + m_L (I − I*)` landing on `L` years, analytic partials
+  against finite differences and the focal-point (Euler) identity, the reference
+  case's sensitivities; the print heightmap (ledge / surface / plateau heights, a
+  ridge at full height across exactly its width), label layout (everything placed
+  at the defaults, on the model, no two labels overlapping, never upside down),
+  deboss/emboss; and the mesh (closed and consistently oriented, exact slab volume,
+  triangle count) and binary STL layout.
+
 ## Determinism
 
 Anything touching `Math.random` (Monte Carlo, bootstrap, Box–Muller) is wrapped
