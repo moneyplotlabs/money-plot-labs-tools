@@ -1429,7 +1429,7 @@ function createMilestoneUI(milestone) {
                 <input type="number" class="inp-age"      value="${milestone.age}"      min="0" max="120">
             </div>
             <div class="control-group">
-                <label class="control-label">Gross Income</label>
+                <label class="control-label">Net Income</label>
                 <input type="number" class="inp-income"   value="${milestone.income}"   step="1000">
             </div>
         </div>
