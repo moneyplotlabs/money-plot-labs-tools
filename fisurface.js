@@ -128,7 +128,7 @@ const INPUTS = {           // URL key → input id
     stk: 'in-showticks', scap: 'in-showcaption', lh: 'in-layer', fl: 'in-first', nz: 'in-nozzle',
     bx: 'in-bedx', by: 'in-bedy', bz: 'in-bedz', inf: 'in-inflation', bp: 'in-bp',
     cc: 'in-ccontours', cl: 'in-clabels', csh: 'in-cshape', cb: 'in-cbody', ca: 'in-caccent', pc: 'in-colors',
-    dot: 'in-youdot', site: 'in-site',
+    dot: 'in-youdot', site: 'in-site', cr: 'in-corner',
 };
 const SITE_TEXT = 'MONEYPLOTLABS.COM';
 const isCheck = id => $(id).type === 'checkbox';
@@ -199,6 +199,7 @@ function readParams() {
         depthMm: clampTo((xMax - xMin) / 1e4 * xScale, 20, 1000),
         heightMm: clampTo(num('in-height', 60), 5, 200),
         baseMm: clampTo(num('in-base', 2.4), 1, 10),
+        cornerMm: clampTo(num('in-corner', 4), 0, 20),
         layerMm: clampTo(num('in-layer', 0.2), 0, 1),
         firstLayerMm: clampTo(num('in-first', 0.2), 0.04, 1),
         textMode: $('in-text').value,
@@ -296,7 +297,8 @@ function buildPrint(p, cellMm) {
         text = { field, offset: (p.textMode === 'emboss' ? 1 : -1) * model.p.textDepthMm };
     }
     // contour shelves/steps and letters are traced exactly, with vertical walls
-    const mesh = FISurface.buildMesh(model.zOut, model.nx, model.ny, model.cell, text, { field: model.bandField, z: model.bandZ, hard: model.hard });
+    const mesh = FISurface.buildMesh(model.zOut, model.nx, model.ny, model.cell, text, { field: model.bandField, z: model.bandZ, hard: model.hard },
+                                         model.p.cornerMm);
     const plan = FISurface.colorPlan(model, p.colors);
     return { params: p, model, mesh, skipped, plan };
 }

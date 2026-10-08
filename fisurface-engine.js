@@ -133,6 +133,7 @@
         incomeTitle: 'INCOME ($/YR)', expenseTitle: 'EXPENSES ($/YR)',
         caption: true, captionText: '', youLabel: 'YOU', tickLabels: true,
         captionDate: '',            // e.g. 'OCT 2026': the dollars are that month's (real) dollars
+        cornerMm: 4,                // radius of the footprint's four vertical corners (0 = square)
         siteText: '',               // e.g. 'MONEYPLOTLABS.COM': small, on the right (or back) ledge
     };
 
@@ -415,6 +416,7 @@
         const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
         const labels = [], skipped = [];
         const taken = new Uint8Array(nx * ny);
+        const rc = p.cornerMm > 0 ? Math.min(p.cornerMm, totalW / 2, totalD / 2) : 0;   // rounded corners
 
         // Grid cells under the text's rotated box, or null if it leaves the model.
         function footprint(text, sz, x, y, angle) {
@@ -425,6 +427,7 @@
                     const ix = Math.round((x + u * c - v * s) / cell);
                     const iy = Math.round((y + u * s + v * c) / cell);
                     if (ix < 0 || iy < 0 || ix >= nx || iy >= ny) return null;
+                    if (rc && cornerDistance(ix * cell, iy * cell, totalW, totalD, rc) < 0.8) return null;
                     out.push(iy * nx + ix);
                 }
             }
@@ -598,7 +601,17 @@
     // Every printed layer of a letter or a contour edge then sits exactly on the one below.
     // Where a wall would have no height (a shelf's edge on its own line, a step's top meeting
     // the slope), its two vertices are one, so the mesh has no zero-area triangles.
-    function buildMesh(z, nx, ny, cell, text, band) {
+    // Signed distance (mm, > 0 inside) to the outline of a W × D rectangle with corners of radius r.
+    function cornerDistance(x, y, W, D, r) {
+        if ((x < r || x > W - r) && (y < r || y > D - r))
+            return r - Math.hypot(x - Math.min(Math.max(x, r), W - r), y - Math.min(Math.max(y, r), D - r));
+        return Math.min(x, y, W - x, D - y);
+    }
+
+    // cornerMm rounds the four vertical corners of the footprint: grid points outside it are
+    // dropped, and the outline is traced through the corner cells (where its signed distance
+    // crosses 0), so the curve is smooth and its wall vertical. A cell it cuts is plain surface.
+    function buildMesh(z, nx, ny, cell, text, band, cornerMm) {
         const N = nx * ny, cx = nx - 1, cy = ny - 1, ISO = 0.5, WELD = 0.01;   // mm
         const TF = text && text.offset ? text.field : null, BF = band ? band.field : null;
 
@@ -610,6 +623,20 @@
             for (let iy = 0; iy < cy; iy++) for (let ix = 0; ix < cx; ix++) {
                 const c = [iy * nx + ix, iy * nx + ix + 1, (iy + 1) * nx + ix, (iy + 1) * nx + ix + 1];
                 if (c.some(k => cls[k] === 1) && c.some(k => cls[k] === 2)) for (const k of c) if (cls[k] === 2) cls[k] = 0;
+            }
+        }
+        const Wm = cx * cell, Dm = cy * cell;
+        const rc = cornerMm > 0 ? Math.min(cornerMm, Wm / 2, Dm / 2) : 0;
+        const inF = new Uint8Array(N).fill(1), sdF = rc ? new Float32Array(N) : null;
+        if (rc) {
+            for (let iy = 0; iy < ny; iy++) for (let ix = 0; ix < nx; ix++) {
+                const k = iy * nx + ix, d = cornerDistance(ix * cell, iy * cell, Wm, Dm, rc);
+                sdF[k] = d;
+                if (d < -1e-9) inF[k] = 0;
+            }
+            for (let iy = 0; iy < cy; iy++) for (let ix = 0; ix < cx; ix++) {   // corner cells: plain surface
+                const c = [iy * nx + ix, iy * nx + ix + 1, (iy + 1) * nx + ix, (iy + 1) * nx + ix + 1];
+                if (c.some(k => !inF[k])) for (const k of c) cls[k] = 0;
             }
         }
         const fieldOf = (c, k) => c === 1 ? TF[k] : BF[k];
@@ -634,12 +661,27 @@
             if (n > 0 && n < 4) mixed++;
         }
 
-        const loop = [];                                       // boundary, counter-clockwise from above
-        for (let ix = 0; ix < nx - 1; ix++) loop.push(ix);                         // front
-        for (let iy = 0; iy < ny - 1; iy++) loop.push(iy * nx + nx - 1);          // right
-        for (let ix = nx - 1; ix > 0; ix--) loop.push((ny - 1) * nx + ix);         // back
-        for (let iy = ny - 1; iy > 0; iy--) loop.push(iy * nx);                    // left
-        const nb = loop.length, base0 = next, center = base0 + nb;
+        // the outline: its crossings through corner cells (each with a copy at z = 0), then a
+        // z = 0 copy of each grid point on it, then the center of the bottom
+        const base0 = next;
+        const fH = new Int32Array(cx * ny).fill(-1), fV = new Int32Array(nx * cy).fill(-1);
+        let nCut = 0, nEdge = 0;
+        if (rc) {
+            for (let iy = 0; iy < ny; iy++) for (let ix = 0; ix < cx; ix++) {
+                const k = iy * nx + ix;
+                if (inF[k] !== inF[k + 1]) { fH[iy * cx + ix] = next; next += 2; nCut++; }
+            }
+            for (let iy = 0; iy < cy; iy++) for (let ix = 0; ix < nx; ix++) {
+                const k = iy * nx + ix;
+                if (inF[k] !== inF[k + nx]) { fV[iy * nx + ix] = next; next += 2; nCut++; }
+            }
+        }
+        const baseOf = new Int32Array(N).fill(-1);
+        for (let iy = 0; iy < ny; iy++) for (let ix = 0; ix < nx; ix++) {
+            const k = iy * nx + ix;
+            if ((iy === 0 || iy === cy || ix === 0 || ix === cx) && inF[k]) { baseOf[k] = next++; nEdge++; }
+        }
+        const center = next;
 
         const positions = new Float32Array((center + 1) * 3);
         const isLetter = new Uint8Array(center + 1);         // for previews: letter-layer vertices
@@ -672,18 +714,38 @@
             const i = vIso[iy * nx + ix];
             if (i >= 0) setIso(i, iy * nx + ix, (iy + 1) * nx + ix, ix * cell, iy * cell, ix * cell, (iy + 1) * cell);
         }
-        loop.forEach((v, i) => {                               // base copy of each boundary vertex, z = 0
-            positions[3 * (base0 + i)] = positions[3 * v]; positions[3 * (base0 + i) + 1] = positions[3 * v + 1];
-        });
-        positions[3 * center] = (nx - 1) * cell / 2; positions[3 * center + 1] = (ny - 1) * cell / 2;
+        const setFoot = (i, a, b, xa, ya, xb, yb) => {         // the outline crossing the edge a→b
+            const t = Math.min(0.95, Math.max(0.05, sdF[a] / (sdF[a] - sdF[b])));
+            const x = xa + t * (xb - xa), y = ya + t * (yb - ya);
+            setV(i, x, y, z[a] + t * (z[b] - z[a]));
+            setV(i + 1, x, y, 0);
+        };
+        for (let iy = 0; iy < ny; iy++) for (let ix = 0; ix < cx; ix++) {
+            const i = fH[iy * cx + ix];
+            if (i >= 0) setFoot(i, iy * nx + ix, iy * nx + ix + 1, ix * cell, iy * cell, (ix + 1) * cell, iy * cell);
+        }
+        for (let iy = 0; iy < cy; iy++) for (let ix = 0; ix < nx; ix++) {
+            const i = fV[iy * nx + ix];
+            if (i >= 0) setFoot(i, iy * nx + ix, (iy + 1) * nx + ix, ix * cell, iy * cell, ix * cell, (iy + 1) * cell);
+        }
+        for (let k = 0; k < N; k++) if (baseOf[k] >= 0) setV(baseOf[k], positions[3 * k], positions[3 * k + 1], 0);
+        setV(center, Wm / 2, Dm / 2, 0);
 
-        // a cut cell needs at most 10 triangles (hexagon + 2 corners + 2 walls)
-        const indices = new Uint32Array(3 * (2 * cx * cy + 8 * mixed + 3 * nb));
+        // a cut cell needs at most 10 triangles (hexagon + 2 corners + 2 walls); a corner cell
+        // at most 3 (pentagon); 3 per outline segment (wall + bottom)
+        const indices = new Uint32Array(3 * (2 * cx * cy + 8 * mixed + 3 * (nEdge + 3 * nCut) + 3 * nCut));
         let t = 0;
         const tri = (a, b, c) => {                            // (skips walls with no height)
             if (a !== b && b !== c && a !== c) { indices[t++] = a; indices[t++] = b; indices[t++] = c; }
         };
         const fan = poly => { for (let i = 1; i + 1 < poly.length; i++) tri(poly[0], poly[i], poly[i + 1]); };
+        // a segment a→b of the outline (counter-clockwise from above): a wall down to z = 0 facing
+        // out, and a bottom triangle to the center (the footprint is convex)
+        const seg = (a, b) => {
+            const ab = a < N ? baseOf[a] : a + 1, bb = b < N ? baseOf[b] : b + 1;
+            tri(ab, bb, b); tri(ab, b, a);
+            tri(center, bb, ab);
+        };
 
         for (let iy = 0; iy < cy; iy++) {
             for (let ix = 0; ix < cx; ix++) {
@@ -691,7 +753,27 @@
                 const c = [k0, k1, k2, k3], cc = c.map(k => cls[k]);
                 const feat = cc[0] || cc[1] || cc[2] || cc[3];   // this cell's feature class, if any
                 const ins = cc.map(v => v > 0), nIn = ins[0] + ins[1] + ins[2] + ins[3];
-                if (nIn === 0) { tri(k0, k1, k2); tri(k0, k2, k3); continue; }
+                const onRim = iy === 0 || ix === cx - 1 || iy === cy - 1 || ix === 0;
+                const side = onRim ? [iy === 0, ix === cx - 1, iy === cy - 1, ix === 0] : null;   // edge e on the outline
+                if (rc && !(inF[k0] && inF[k1] && inF[k2] && inF[k3])) {
+                    // a corner cell: the part inside the footprint, its outline chord walled
+                    if (!(inF[k0] || inF[k1] || inF[k2] || inF[k3])) continue;
+                    const fiso = [fH[iy * cx + ix], fV[iy * nx + ix + 1], fH[(iy + 1) * cx + ix], fV[iy * nx + ix]];
+                    const items = [];                          // {v, e, cut}
+                    for (let e = 0; e < 4; e++) {
+                        if (inF[c[e]]) items.push({ v: c[e], e, cut: false });
+                        if (inF[c[e]] !== inF[c[(e + 1) % 4]]) items.push({ v: fiso[e], e, cut: true });
+                    }
+                    fan(items.map(it => it.v));
+                    for (let i = 0; i < items.length; i++) {
+                        const X = items[i], Y = items[(i + 1) % items.length];
+                        if ((X.cut && Y.cut) || (side && side[X.e])) seg(X.v, Y.v);
+                    }
+                    continue;
+                }
+                const rim = () => { if (side) for (let e = 0; e < 4; e++) if (side[e]) seg(c[e], c[(e + 1) % 4]); };
+                if (nIn === 0) { tri(k0, k1, k2); tri(k0, k2, k3); rim(); continue; }
+                rim();
                 if (nIn === 4) { tri(sh[k0], sh[k1], sh[k2]); tri(sh[k0], sh[k2], sh[k3]); continue; }
 
                 // walk the cell's outline counter-clockwise: corners, and crossings between them
@@ -726,12 +808,6 @@
                     }
                 }
             }
-        }
-        for (let i = 0; i < nb; i++) {
-            const j = (i + 1) % nb;
-            const at = loop[i], bt = loop[j], ab = base0 + i, bb = base0 + j;
-            tri(ab, bb, bt); tri(ab, bt, at);                  // wall, facing out
-            tri(center, bb, ab);                               // bottom, facing down
         }
         return { positions, indices: indices.subarray(0, t), topVertices: N, textEnd: base0, isLetter };
     }
@@ -867,7 +943,7 @@
     const FISurface = {
         DEFAULTS, yearsToFI, gradient, focalPoint, contourSlope, sensitivities, balancePath,
         ticks, kLabel, readable, snapToLayer, resolveMargins, buildModel, layoutLabels, textField, colorPlan, layerTop,
-        buildMesh, checkClosed, toBinarySTL,
+        buildMesh, checkClosed, toBinarySTL, cornerDistance,
     };
 
     global.FISurface = FISurface;

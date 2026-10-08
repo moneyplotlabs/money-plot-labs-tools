@@ -559,6 +559,58 @@ describe('your dot', () => {
     });
 });
 
+describe('rounded corners', () => {
+    const m = F.buildModel({ cellMm: 0.25, contourShape: 'shelf' });
+    const meshR = r => F.buildMesh(m.zOut, m.nx, m.ny, m.cell, null, { field: m.bandField, z: m.bandZ, hard: m.hard }, r);
+    const W = (m.nx - 1) * m.cell, D = (m.ny - 1) * m.cell;
+
+    test('watertight, no zero-area triangles, and only the corner material is removed', () => {
+        const square = F.checkClosed(meshR(0)).volume;
+        for (const r of [2, 4, 10]) {
+            const mesh = meshR(r), P = mesh.positions, T = mesh.indices;
+            const { manifold, volume } = F.checkClosed(mesh);
+            assert.ok(manifold, 'r ' + r);
+            let flat = 0;
+            for (let t = 0; t < T.length; t += 3) {
+                const a = 3 * T[t], b = 3 * T[t + 1], c = 3 * T[t + 2];
+                const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+                const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+                if (Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2 < 1e-6) flat++;
+            }
+            assert.equal(flat, 0, 'r ' + r);
+            // four corners of (1 − π/4)·r² each, on the ledge (baseMm thick)
+            close(square - volume, 4 * r * r * (1 - Math.PI / 4) * m.p.baseMm, 0.03 * r * r, 'removed volume, r ' + r);
+        }
+    });
+
+    test('every vertex is inside the footprint; the corner outline is on the arc', () => {
+        const r = 4, mesh = meshR(r), P = mesh.positions, T = mesh.indices;
+        const used = new Uint8Array(P.length / 3);
+        for (const v of T) used[v] = 1;
+        let onArc = 0;
+        for (let v = 0; v < used.length; v++) {
+            if (!used[v]) continue;
+            const x = P[3 * v], y = P[3 * v + 1], d = F.cornerDistance(x, y, W, D, r);
+            assert.ok(d > -1e-3, `vertex ${x.toFixed(2)}, ${y.toFixed(2)} outside by ${-d}`);
+            const inCorner = (x < r || x > W - r) && (y < r || y > D - r);
+            if (inCorner && Math.abs(d) < 0.02) onArc++;
+        }
+        assert.ok(onArc > 4 * 20, 'outline points on the arcs: ' + onArc);
+    });
+
+    test('labels keep clear of the rounded corners', () => {
+        const mr = F.buildModel({ cellMm: 0.5, cornerMm: 12, siteText: 'MONEYPLOTLABS.COM' });
+        const Wr = mr.widthMm, Dr = mr.depthMm;
+        for (const l of F.layoutLabels(mr, measure).labels) {
+            const a = l.angle * Math.PI / 180, half = measure(l.text, l.size) / 2;
+            for (const u of [-half, half]) for (const v of [-0.4 * l.size, 0.4 * l.size]) {
+                const x = l.x + u * Math.cos(a) - v * Math.sin(a), y = l.y + u * Math.sin(a) + v * Math.cos(a);
+                assert.ok(F.cornerDistance(x, y, Wr, Dr, 12) > 0.5, l.text);
+            }
+        }
+    });
+});
+
 describe('site label', () => {
     test('on the right ledge near the back, only when set', () => {
         const m = F.buildModel({ cellMm: 0.5, siteText: 'MONEYPLOTLABS.COM' });
