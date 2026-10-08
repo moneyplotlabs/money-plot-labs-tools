@@ -522,12 +522,12 @@ describe('your dot', () => {
 });
 
 describe('site label', () => {
-    test('on the right ledge near the front, only when set', () => {
+    test('on the right ledge near the back, only when set', () => {
         const m = F.buildModel({ cellMm: 0.5, siteText: 'MONEYPLOTLABS.COM' });
         const l = F.layoutLabels(m, measure).labels.find(l => l.text === 'MONEYPLOTLABS.COM');
         assert.ok(l, 'placed');
         assert.equal(l.angle, 90);
-        assert.ok(l.x > m.p.marginLeft + m.p.widthMm && l.y < m.p.marginFront + m.p.depthMm / 2);
+        assert.ok(l.x > m.p.marginLeft + m.p.widthMm && l.y > m.p.marginFront + m.p.depthMm / 2);
         assert.ok(!F.layoutLabels(F.buildModel({ cellMm: 0.5 }), measure).labels.some(l => l.text.includes('MONEYPLOT')));
     });
 });

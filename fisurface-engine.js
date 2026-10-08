@@ -520,11 +520,11 @@
             if (!(sz >= ts * 0.75 && putBest(backCaption, sz, cands, onLedge, (fp, x) => Math.abs(x - ml - W / 2))))
                 skipped.push(backCaption);
         }
-        if (p.siteText) {                                      // right ledge from the front, else the back ledge
+        if (p.siteText) {                                      // right ledge from the back (clear of the front axis labels), else the back ledge
             const sz = Math.min(ts * 0.75, mr - 2), w = measure(p.siteText, sz), cands = [];
-            for (let y = mf + w / 2; y <= mf + D - w / 2 + 1e-9; y += 1) cands.push([ml + W + mr / 2, y, 90]);
+            for (let y = mf + D - w / 2; y >= mf + w / 2 - 1e-9; y -= 1) cands.push([ml + W + mr / 2, y, 90]);
             for (let x = ml + W - w / 2; x >= ml + w / 2 - 1e-9; x -= 1) cands.push([x, mf + D + mb / 2, 0]);
-            if (!(sz >= 3 && putBest(p.siteText, sz, cands, onLedge, (fp, x, y) => (y - mf) + (ml + W - x) + (y > mf + D ? D : 0))))
+            if (!(sz >= 3 && putBest(p.siteText, sz, cands, onLedge, (fp, x, y) => (y > mf + D ? D + (ml + W - x) : mf + D - y))))
                 skipped.push(p.siteText);
         }
         return { labels, skipped };
