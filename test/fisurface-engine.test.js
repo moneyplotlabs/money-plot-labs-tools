@@ -344,7 +344,7 @@ describe('layoutLabels', () => {
         assert.equal(m.p.marginLeft, 1.5 + 7 + 2.5);                  // ticks only: no expense title
         assert.equal(F.buildModel({ cellMm: 1 }).p.marginFront, 16);  // the defaults
         const none = F.layoutLabels(F.buildModel({ cellMm: 0.5, tickLabels: false, caption: false }), measure).labels;
-        assert.ok(!none.some(l => /^\d|^0$/.test(l.text) && !/YRS|y$/.test(l.text)), 'no tick labels');
+        assert.ok(!none.some(l => /^\d|^0$/.test(l.text) && !/YRS|Y$/.test(l.text)), 'no tick labels');
     });
 });
 

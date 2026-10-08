@@ -150,7 +150,7 @@
         const ticks = p.tickLabels ? TEXT_GAP + p.tickTextMm : 0;
         const titleRow = (p.incomeTitle || p.caption) ? TEXT_GAP + p.titleTextMm : 0;
         const titleCol = p.expenseTitle ? TEXT_GAP + p.titleTextMm : 0;
-        const edge = p.inlineTextMm + 3.5;              // room for a contour label at its exit
+        const edge = p.inlineTextMm + 3.5;              // room for the site text or a moved caption
         return {
             marginFront: p.marginFront != null ? p.marginFront : Math.max(4, ticks + titleRow + 2.5),
             marginLeft:  p.marginLeft  != null ? p.marginLeft  : Math.max(4, ticks + titleCol + 2.5),
@@ -484,8 +484,7 @@
         }
 
         // Raised lines: inline beside the line on its flattest free stretch (contours: always on
-        // the uphill side). A contour with no room there is labeled on the back/right ledge
-        // where it leaves the plot.
+        // the uphill side). A contour with no room there gets a short label ("25Y"), or none.
         const slopeAt = k => {
             const ix = k % nx, iy = (k - ix) / nx;
             const xa = Math.max(ix - 1, 0), xb = Math.min(ix + 1, nx - 1);
@@ -545,15 +544,10 @@
                 const mid = pts.map(([x, y]) => [x - w / 2 * ln.uy, y + w / 2 * ln.ux]);
                 // always uphill, inside the band of years that starts at this line, so with year
                 // bands every band carries exactly one label (its own starting year)
-                ok = inline(name, mid, readable(ln.angle), w, [-ln.uy, ln.ux]);
-                if (!ok) {
-                    const [ex, ey] = pts[pts.length - 1];       // where it leaves the plot
-                    const shifts = linspace(-6, 6, 25);
-                    const cands = (mf + D - ey) < (ml + W - ex)
-                        ? shifts.map(s => [ex + s, mf + D + mb / 2, 0])
-                        : shifts.map(s => [ml + W + mr / 2, ey + s, 90]);
-                    ok = putBest(`${ln.value}${plus}y`, size, cands, onLedge, (fp, x, y) => Math.abs(x - ex) + Math.abs(y - ey));
-                }
+                // (with no room, the short form; with none for that either, no label: one off on a
+                // ledge reads as belonging to nothing)
+                ok = inline(name, mid, readable(ln.angle), w, [-ln.uy, ln.ux])
+                  || inline(`${ln.value}${plus}Y`, mid, readable(ln.angle), w, [-ln.uy, ln.ux]);
             }
             if (!ok) skipped.push(name);
         }

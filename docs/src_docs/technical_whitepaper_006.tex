@@ -285,7 +285,7 @@ The ledge text is configurable: the two axis titles, the caption (by default ``O
 \item \textbf{Inline:} each raised contour and each ``you'' line gets a label that runs along it (the angle is folded into $(-90^\circ, 90^\circ]$ so text never reads upside down). It is offset just clear of the line. Candidate positions are sampled along the line: on both sides for a ``you'' line, but only the uphill side for a contour. A contour's label then sits inside the band of years that starts at its line, so with year bands each band carries exactly one label, its own starting year. A candidate is rejected if its rotated box leaves the plot, touches a contour or ``you'' ridge (with a 0.8~mm gap), or touches another label (1~mm gap). Among the rest, the label goes where the cost
 \[ \max_{\text{box}} |\nabla z| \;+\; 2 \times (\text{fraction of the box on a grid ridge}) \]
 is lowest. That is the flattest free stretch, where debossed text prints cleanest.
-\item \textbf{Fallback:} contours bunch together near the never line. A contour with no room for an inline label is labeled on the back or right ledge, where it leaves the plot.
+\item \textbf{Fallback:} contours bunch together near the never line. A contour with no room for an inline label gets a short one (``25Y''), or none: a label off on a ledge reads as belonging to nothing.
 \end{itemize}
 
 \subsection{A watertight mesh}
@@ -316,7 +316,7 @@ The plateau's top layer is the cap contour's layer. So in line mode the whole $n
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.88\textwidth]{fi_print_preview.png}
-\caption{The default print model (hillshaded top view at 0.25~mm). It has debossed tick labels and axis titles on the ledges, an inline label beside each contour and ``you'' line (where a contour has no room inline, its label moves to the back or right ledge), and a flat plateau for 30+ years.}
+\caption{The default print model (hillshaded top view at 0.25~mm). It has debossed tick labels and axis titles on the ledges, an inline label beside each contour and ``you'' line (a contour with no room inline gets a short label, or none), and a flat plateau for 30+ years.}
 \label{fig:print}
 \end{figure}
 
