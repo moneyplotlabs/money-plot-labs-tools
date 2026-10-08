@@ -289,25 +289,38 @@
         //   zOut      — the surface with the other raised lines, but no contour shapes
         //   bandField — 0.5 + distance (mm) inside the nearest contour shape: ½ exactly on its edges
         //   bandZ     — that shape's height there: a shelf's floor, or a step's top
+        //   hard      — zOut is level up to a shape's edge here (a line's strip across it, or the dot's moat),
+        //               so a wall's top takes it as is rather than blending into a neighbor
         const zOut = new Float32Array(z), bandField = new Float32Array(N).fill(-50), bandZ = new Float32Array(z);
+        const hard = new Uint8Array(N);
+        const clear = 3 * (p.layerMm > 0 ? p.layerMm : 0.2);   // how far a line must stand above a shape to cross it
         for (let iy = 0; iy < ny; iy++) {
             const y = iy * cell;
             for (let ix = 0; ix < nx; ix++) {
                 const k = iy * nx + ix;
-                if (!plot[k]) continue;
+                if (!plot[k]) { hard[k] = 1; continue; }   // (a shape at the plot's edge drops to the ledge)
                 const x = ix * cell;
                 let base = z[k], raised = -Infinity, blocked = false;   // surface after cuts; highest line top
                 let other = -Infinity, sBest = -50, shapeZ = z[k];        // other lines' top; nearest shape
+                // No line rises above a step's top just downhill of it, or above a shelf's floor in or
+                // just downhill of it (the floor runs on through the line, unbroken). The cap reaches
+                // halfway into the shape, so its downhill edge meets the line flush.
+                let lid = Infinity, lidIn = Infinity;     // (in a shelf, only the grid model is capped)
                 for (const ln of lines) {
                     const d = ln.dist(x, y);
                     if (ln.kind === 'contour') {
                         const on = d <= 0 && d >= -ln.width;
                         if (ln.shape === 'step') {
+                            if (d > -ln.width / 2 && isFinite(d) && ln.top() < zCap) lid = Math.min(lid, ln.top());   // (contours come first in lines)
                             const shelf = !on && ln.fill && d < 0 && d >= -ln.fill && z[k] < ln.top();
                             if (on || shelf) raised = Math.max(raised, ln.top());   // cliff + level top
                             if (shelf) blocked = true;
-                        } else if (ln.shape === 'shelf' && on) {
-                            base = ln.zLine;            // level floor at the line (a cut; at most half a layer of fill)
+                        } else if (ln.shape === 'shelf') {
+                            if (d > -ln.width / 2 && isFinite(d)) lid = Math.min(lid, ln.zLine);
+                            if (on) {
+                                lidIn = Math.min(lidIn, ln.zLine);
+                                base = ln.zLine;        // level floor at the line (a cut; at most half a layer of fill)
+                            }
                         }
                         if (ln.shape === 'none' ? band(d, pad) > 0 : band(d + ln.width / 2, ln.width + pad) > 0) blocked = true;
                         // signed distance inside the shape (> 0 inside, = 0 on its edges)
@@ -320,32 +333,63 @@
                         }
                         if (sIn > sBest) { sBest = Math.max(-50, Math.min(50, sIn)); shapeZ = ln.shape === 'shelf' ? ln.zLine : ln.top(); }
                     } else {
-                        if (Math.abs(d) <= ln.width / 2) { raised = Math.max(raised, ln.top(x, y)); other = Math.max(other, ln.top(x, y)); }
+                        const t = Math.min(ln.top(x, y), lid);
+                        if (Math.abs(d) <= ln.width / 2) {
+                            raised = Math.max(raised, Math.min(t, lidIn)); other = Math.max(other, t);
+                            if (t < ln.top(x, y)) hard[k] = 1;   // level with the step's top or shelf's floor: meets it flush
+                        }
                         if (band(d, ln.width + pad) > 0) {
                             if (ln.kind === 'grid') onGrid[k] = 1; else blocked = true;
                         }
                     }
                 }
-                // your dot: traced like a contour shape (its edge is ½ of the field), and it wins
-                // over any shape it overlaps
-                let inDot = false;
-                if (mk) {
-                    const sDot = mkR - Math.hypot(x - youX, y - youY);
-                    if (sDot > 0) { sBest = Math.min(50, sDot); inDot = true; }
-                    else sBest = Math.max(sBest, sDot);
-                    if (sDot > -(pad + p.labelGap)) blocked = true;
-                }
                 // nothing rises above the plateau: it stays flat, and lines that run into it
                 // level off into it (your lines and the grid mean nothing past the cap)
                 zOut[k] = Math.max(z[k], Math.min(other, zCap));
+                // Whatever stands above a contour shape is kept out of it, so a vertical wall
+                // separates the two (two touching shapes would be joined by a ramp instead):
+                //   your lines cross it as their own strips where they stand well clear of its top
+                //   (3 layers); elsewhere the shape's top runs level over them, and they stop at
+                //   its edge with a wall: no thin slivers. The low grid lines always stop at it.
+                if (sBest >= 0) {                       // (outside, the field stays the shape's own, so its edges stay true)
+                    const was = sBest;
+                    for (const ln of lines) {
+                        if (ln.kind === 'contour' || ln.kind === 'grid') continue;
+                        const out = Math.abs(ln.dist(x, y)) - ln.width / 2;
+                        if (out >= sBest) continue;
+                        // the strip starts where the line's top clears the shape: as a distance along
+                        // the line (height still to climb ÷ its slope), so that end is a straight wall
+                        const ax = -(ln.dist(x, y + 1) - ln.dist(x, y)), ay = ln.dist(x + 1, y) - ln.dist(x, y);
+                        const top = (u, v) => Math.min(ln.top(u, v), lid, lidIn, zCap);
+                        const slope = Math.abs(top(x + 0.1 * ax, y + 0.1 * ay) - top(x - 0.1 * ax, y - 0.1 * ay)) / 0.2;
+                        const short = shapeZ + clear - top(x, y);       // > 0: not clear yet
+                        sBest = Math.max(-50, Math.min(sBest, Math.max(out - 1e-4, short / Math.max(slope, 1e-3))));
+                    }
+                    if (was >= 0 && sBest < 0) hard[k] = 1;   // on the strip
+                }
+                // your dot: traced like a contour shape (its edge is ½ of the field), standing in a
+                // level moat at the shape's height, 1.5 cells wide, where it meets one
+                let inDot = false;
+                if (mk) {
+                    let sDot = mkR - Math.hypot(x - youX, y - youY);
+                    if (Math.abs(sDot) < 1e-6) sDot = 0;        // on the rim, within rounding
+                    const moat = -sDot - 1.5 * cell;
+                    // (>= : a point exactly on the rim is inside the outline, so it takes the top)
+                    if (sDot >= 0) { sBest = Math.min(50, sDot); inDot = true; }
+                    else {
+                        if (sBest >= 0 && moat < 0) { zOut[k] = shapeZ; hard[k] = 1; }
+                        sBest = Math.max(Math.min(sBest, moat), sDot);
+                    }
+                    if (sDot > -(pad + p.labelGap)) blocked = true;
+                }
                 bandField[k] = 0.5 + sBest;
-                bandZ[k] = inDot ? mkTop : Math.min(zCap, Math.max(shapeZ, other));
+                bandZ[k] = inDot ? mkTop : shapeZ;
                 z[k] = inDot ? mkTop : Math.max(base, Math.min(raised, zCap));
                 surfaceOk[k] = !blocked && x > ml + keep && x < ml + W - keep && y > mf + keep && y < mf + D - keep ? 1 : 0;
             }
         }
 
-        return { p, nx, ny, cell, z, zOut, bandField, bandZ, plot, lines, surfaceOk, onGrid, toX, toY, zCap,
+        return { p, nx, ny, cell, z, zOut, bandField, bandZ, hard, plot, lines, surfaceOk, onGrid, toX, toY, zCap,
                  marker: mk ? { x: youX, y: youY, r: mkR, top: mkTop } : null,
                  widthMm: (nx - 1) * cell, depthMm: (ny - 1) * cell };
     }
@@ -555,7 +599,8 @@
     // the cells (marching squares: an edge crosses where the feature's field crosses ½, by linear
     // interpolation), so they follow their true shape instead of stair-stepping along the grid:
     //   text = { field, offset } — letters (field ≥ ½) moved by offset mm (− deboss, + emboss)
-    //   band = { field, z }      — contour shelves/steps (field ≥ ½) at heights z
+    //   band = { field, z, hard } — contour shelves/steps (field ≥ ½) at heights z; beside a
+    //                              hard point, a wall's top is that point's height, not a blend
     // Every printed layer of a letter or a contour edge then sits exactly on the one below.
     // Where a wall would have no height (a shelf's edge on its own line, a step's top meeting
     // the slope), its two vertices are one, so the mesh has no zero-area triangles.
@@ -617,7 +662,8 @@
             const c = cls[a] || cls[b], Fa = fieldOf(c, a), Fb = fieldOf(c, b);
             const t = Math.min(0.95, Math.max(0.05, (ISO - Fa) / (Fb - Fa)));
             const x = xa + t * (xb - xa), y = ya + t * (yb - ya);
-            setV(i, x, y, z[a] + t * (z[b] - z[a]));
+            const out = cls[a] ? b : a, HD = c === 2 && band.hard;
+            setV(i, x, y, HD && HD[out] ? z[out] : z[a] + t * (z[b] - z[a]));
             // letters follow the surface; a shape keeps its own level (its inside corner's height)
             const zl = c === 1 ? lowZ(c, a) + t * (lowZ(c, b) - lowZ(c, a)) : lowZ(c, cls[a] ? a : b);
             setV(i + 1, x, y, zl);

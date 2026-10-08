@@ -263,7 +263,9 @@ describe('printability', () => {
                 const x0 = ix * model.cell, y0 = iy * model.cell;       // the highest line covering this point wins
                 if (model.lines.some(l => l.kind === 'contour' && l.dist(x0, y0) <= 0.1 && l.dist(x0, y0) >= -9)) continue;  // contour steps
                 const tops = model.lines.filter(l => l.kind !== 'contour' && Math.abs(l.dist(x0, y0)) <= l.width / 2).map(l => l.top(x0, y0));
-                close(model.z[k], Math.min(Math.max(...tops), model.zCap), 1e-4);   // nothing rises above the plateau
+                // just downhill of a step, no line rises above its top
+                const lids = model.lines.filter(l => l.kind === 'contour' && l.dist(x0, y0) > 0 && l.top() < model.zCap).map(l => l.top());
+                close(model.z[k], Math.min(Math.max(...tops), model.zCap, ...lids), 1e-4);   // nothing rises above the plateau
             }
         }
     });
@@ -420,7 +422,7 @@ describe('text outline', () => {
 });
 
 describe('contour shape edges', () => {
-    const meshOf = (m, text) => F.buildMesh(m.zOut, m.nx, m.ny, m.cell, text, { field: m.bandField, z: m.bandZ });
+    const meshOf = (m, text) => F.buildMesh(m.zOut, m.nx, m.ny, m.cell, text, { field: m.bandField, z: m.bandZ, hard: m.hard });
 
     test('shelf edges are traced on their exact lines, not stair-stepped along the grid', () => {
         const m = F.buildModel({ cellMm: 0.5, contourShape: 'shelf' });
@@ -433,7 +435,10 @@ describe('contour shape edges', () => {
             const ln = contours.find(l => Math.abs(zz - l.zLine) < 1e-3);
             const { marginLeft: ml, marginFront: mf, widthMm: W, depthMm: D } = m.p;
             const border = x < ml + cell || x > ml + W - cell || y < mf + cell || y > mf + D - cell;   // (shelf meets the plot's edge)
-            if (!offGrid || !ln || border || nearDot(m, x, y)) continue;   // a shelf-floor crossing
+            // (raised lines cross the shelf as their own strips, and the dot sits in a moat: their
+            // corners with the shelf edge round off over a cell or two)
+            const byRidge = m.lines.some(l => l.kind !== 'contour' && Math.abs(Math.abs(l.dist(x, y)) - l.width / 2) < 2 * cell);
+            if (!offGrid || !ln || border || byRidge || nearDot(m, x, y, 3 * cell)) continue;   // a shelf-floor crossing
             const d = ln.dist(x, y);
             assert.ok(Math.min(Math.abs(d), Math.abs(d + ln.width)) < 0.06 * cell,   // (crossings stay 5% of a cell off the corners)
                  `crossing ${Math.min(Math.abs(d), Math.abs(d + ln.width)).toFixed(3)} mm off the ${ln.value}-year shelf edge`);
@@ -469,7 +474,7 @@ describe('mesh quality', () => {
     test('no zero-area triangles: walls with no height are welded shut, and it stays watertight', () => {
         for (const shape of ['shelf', 'step', 'none']) {
             const m = F.buildModel({ cellMm: 0.5, contourShape: shape });
-            const mesh = F.buildMesh(m.zOut, m.nx, m.ny, m.cell, null, { field: m.bandField, z: m.bandZ });
+            const mesh = F.buildMesh(m.zOut, m.nx, m.ny, m.cell, null, { field: m.bandField, z: m.bandZ, hard: m.hard });
             const P = mesh.positions, T = mesh.indices;
             let flat = 0;
             for (let t = 0; t < T.length; t += 3) {
@@ -500,7 +505,7 @@ describe('your dot', () => {
 
     test('its edge is traced as a circle, watertight', () => {
         const m = F.buildModel({ cellMm: 0.25, contourShape: 'none' });     // (no shelf beside it)
-        const mesh = F.buildMesh(m.zOut, m.nx, m.ny, m.cell, null, { field: m.bandField, z: m.bandZ });
+        const mesh = F.buildMesh(m.zOut, m.nx, m.ny, m.cell, null, { field: m.bandField, z: m.bandZ, hard: m.hard });
         const P = mesh.positions, { x, y, r, top } = m.marker;
         let n = 0;
         for (let v = mesh.topVertices; v < mesh.textEnd; v++) {
@@ -511,6 +516,39 @@ describe('your dot', () => {
         }
         assert.ok(n > 50, 'checked ' + n);
         assert.ok(F.checkClosed(mesh).manifold);
+    });
+
+    test('it meets a step beside it with a vertical wall, not a ramp', () => {
+        // the 15-year step's fill runs into the dot; at 0.2 mm, grid points fall on its rim
+        for (const cellMm of [0.35, 0.2]) {
+            const m = F.buildModel({ cellMm });
+            const mesh = F.buildMesh(m.zOut, m.nx, m.ny, m.cell, null, { field: m.bandField, z: m.bandZ, hard: m.hard });
+            const P = mesh.positions, I = mesh.indices, { x, y, r, top } = m.marker;
+            let ramps = 0, touching = 0;
+            for (let t = 0; t < I.length; t += 3) {
+                const v = [I[t], I[t + 1], I[t + 2]].map(i => [P[3 * i], P[3 * i + 1], P[3 * i + 2]]);
+                const atTop = v.filter(q => Math.abs(q[2] - top) < 1e-4).length;
+                if (atTop === 0 || atTop === 3 || v.some(q => Math.hypot(q[0] - x, q[1] - y) > r + 2)) continue;
+                touching++;
+                const area = Math.abs((v[1][0] - v[0][0]) * (v[2][1] - v[0][1]) - (v[2][0] - v[0][0]) * (v[1][1] - v[0][1])) / 2;
+                if (area > 1e-6) ramps++;                      // not a wall: it slopes down off the top
+            }
+            assert.ok(touching > 50, 'checked ' + touching);
+            assert.equal(ramps, 0, `ramps at ${cellMm} mm`);
+        }
+    });
+
+    test('grid points exactly on its rim take its top (no notches where your lines meet it)', () => {
+        const m = F.buildModel({ cellMm: 0.5 });          // center on the grid, r a whole number of cells
+        const { x, y, r, top } = m.marker;
+        let n = 0;
+        for (const [u, v] of [[r, 0], [-r, 0], [0, r], [0, -r]]) {
+            const k = Math.round((y + v) / m.cell) * m.nx + Math.round((x + u) / m.cell);
+            if (m.bandField[k] < 0.5) continue;
+            close(m.bandZ[k], top, 1e-4, `rim point at (${u}, ${v})`);
+            n++;
+        }
+        assert.equal(n, 4);
     });
 
     test('labels keep clear of it; youMarker null leaves no dot', () => {

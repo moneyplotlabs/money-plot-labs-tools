@@ -296,7 +296,7 @@ function buildPrint(p, cellMm) {
         text = { field, offset: (p.textMode === 'emboss' ? 1 : -1) * model.p.textDepthMm };
     }
     // contour shelves/steps and letters are traced exactly, with vertical walls
-    const mesh = FISurface.buildMesh(model.zOut, model.nx, model.ny, model.cell, text, { field: model.bandField, z: model.bandZ });
+    const mesh = FISurface.buildMesh(model.zOut, model.nx, model.ny, model.cell, text, { field: model.bandField, z: model.bandZ, hard: model.hard });
     const plan = FISurface.colorPlan(model, p.colors);
     return { params: p, model, mesh, skipped, plan };
 }
