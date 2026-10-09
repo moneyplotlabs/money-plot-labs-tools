@@ -316,10 +316,13 @@ describe('layoutLabels', () => {
         assert.ok(inline > 0);
     });
 
-    test('the auto caption names its month, and shrinks to fit beside the title', () => {
+    test('the auto caption shrinks to fit beside the title; its month goes on the right ledge', () => {
         const m = F.buildModel({ cellMm: 0.5, captionDate: 'OCT 2026' });
-        const cap = F.layoutLabels(m, measure).labels.find(l => l.text.startsWith('OCT 2026'));
+        const lay = F.layoutLabels(m, measure).labels;
+        const cap = lay.find(l => l.text.startsWith('$250k'));
         assert.ok(cap, 'caption placed');
+        const month = lay.find(l => l.text === 'OCT 2026');
+        assert.ok(month && month.x > m.p.marginLeft + m.p.widthMm, 'month on the right ledge');
         for (const part of ['$250k SAVED', '5% RETURN', '4% SWR']) assert.ok(cap.text.includes(part), part);
         assert.ok(cap.size <= m.p.titleTextMm * 0.8 + 1e-9 && cap.size >= m.p.tickTextMm * 0.75 - 1e-9);
         const mid = 'M'.repeat(70);                         // too long beside the title: moves to the back ledge
@@ -608,6 +611,80 @@ describe('rounded corners', () => {
                 assert.ok(F.cornerDistance(x, y, Wr, Dr, 12) > 0.5, l.text);
             }
         }
+    });
+});
+
+describe('surface from $0, with your NOW line', () => {
+    const base = { cellMm: 0.5, contourShape: 'shelf', R: 0.05, S: 0.04, P0: 250000, youIncome: 100000, youExpenses: 60000 };
+    const m = F.buildModel(Object.assign({ surfaceFrom: 'zero' }, base));
+    const contours = m.lines.filter(l => l.kind === 'contour');
+
+    test('heights are years from $0, and every contour is a ray from the origin (savings rate)', () => {
+        for (const ln of contours) { close(ln.fx, m.toX(0), 1e-9); close(ln.fy, m.toY(0), 1e-9); }
+        const q = F.buildModel(Object.assign({ surfaceFrom: 'zero' }, base, { contourShape: 'none' }));   // (a point off every line)
+        const ix = Math.round(q.toX(140000) / q.cell), iy = Math.round(q.toY(50000) / q.cell);
+        const x = ix * q.cell, y = iy * q.cell;
+        const I = 50000 + (x - q.p.marginLeft) / q.p.widthMm * 250000, X = (y - q.p.marginFront) / q.p.depthMm * 120000;
+        const want = q.p.baseMm + q.p.liftMm + F.yearsToFI(I, X, 0.05, 0.04, 0) * q.p.heightMm / q.p.capYears;
+        close(q.z[iy * q.nx + ix], want, 1e-3, 'surface at $140k / $50k');
+    });
+
+    test('the NOW contour is your years left today, level, and labeled', () => {
+        const now = contours.filter(l => l.now);
+        assert.equal(now.length, 1);
+        close(now[0].value, F.yearsToFI(100000, 60000, 0.05, 0.04, 250000), 1e-9);
+        // your years left = years from $0 at your point − the years your portfolio already covers
+        const n0 = F.yearsToFI(100000, 60000, 0.05, 0.04, 0), covered = Math.log(1 + 0.05 * 250000 / 40000) / Math.log(1.05);
+        close(now[0].value, n0 - covered, 1e-9);
+        const lay = F.layoutLabels(m, measure);
+        assert.ok(lay.labels.some(l => l.text === 'NOW 16.1 YRS'));
+        const plan = F.colorPlan(m, { contours: 'lines', baseLabels: false });
+        assert.ok(plan.changes.some(c => /NOW/.test(c.why) && c.to === 'accent'));
+    });
+
+    test('a regular contour within half a year of NOW gives way; none from your portfolio', () => {
+        const near = F.buildModel(Object.assign({ surfaceFrom: 'zero', nowYears: 15.2 }, base));
+        const vals = near.lines.filter(l => l.kind === 'contour').map(l => l.value);
+        assert.ok(vals.includes(15.2) && !vals.includes(15));
+        assert.ok(!F.buildModel(base).lines.some(l => l.now));
+        assert.ok(!F.buildModel(Object.assign({ surfaceFrom: 'zero', nowYears: Infinity }, base)).lines.some(l => l.now));
+    });
+
+    test('the caption says FROM $0; progress text goes on the right ledge, beside the plot', () => {
+        const mp = F.buildModel(Object.assign({ surfaceFrom: 'zero', progressText: '5.6 YRS DONE · 16.1 TO GO' }, base));
+        const labels = F.layoutLabels(mp, measure).labels;
+        assert.ok(labels.some(l => /FROM \$0/.test(l.text)));
+        const pr = labels.find(l => l.text === '5.6 YRS DONE · 16.1 TO GO');
+        assert.ok(pr && pr.angle === 90 && pr.x > mp.p.marginLeft + mp.p.widthMm, 'on the right ledge');
+    });
+});
+
+describe('ledge widths', () => {
+    test('the right and back ledges hold the outer half of the far tick labels, 2.5 mm clear of the edge', () => {
+        const m = F.buildModel({ cellMm: 0.5, incomeRange: [50000, 300000], expenseRange: [0, 120000] });
+        const lay = F.layoutLabels(m, measure).labels;
+        const right = lay.find(l => l.text === '300k'), back = lay.find(l => l.text === '120k');
+        assert.ok(right.x + measure('300k', right.size) / 2 <= m.widthMm - 2.5 + 1e-6);
+        close(right.x, m.p.marginLeft + m.p.widthMm, m.cell, 'still centered on its tick (to the grid)');
+        assert.ok(back.y + measure('120k', back.size) / 2 <= m.depthMm - 2.5 + 1e-6);
+    });
+
+    test('the right ledge grows a row for each of the progress line and the site address', () => {
+        const at = o => F.buildModel(Object.assign({ cellMm: 0.5, tickLabels: false }, o)).p.marginRight;
+        const one = at({ siteText: 'MONEYPLOTLABS.COM' }), two = at({ siteText: 'MONEYPLOTLABS.COM', progressText: '5.6 YRS DONE · 16.1 TO GO' });
+        assert.ok(two > one && one >= 4);
+        const m = F.buildModel({ cellMm: 0.5, siteText: 'MONEYPLOTLABS.COM', progressText: '5.6 YRS DONE · 16.1 TO GO' });
+        const lay = F.layoutLabels(m, measure);
+        assert.deepEqual(lay.skipped, []);
+        const pr = lay.labels.find(l => /TO GO/.test(l.text)), site = lay.labels.find(l => l.text === 'MONEYPLOTLABS.COM');
+        assert.ok(pr.x < site.x, 'progress beside the plot, the address outside it');
+    });
+
+    test('a set caption size is used as is; given ledge widths override auto', () => {
+        const m = F.buildModel({ cellMm: 0.5, captionTextMm: 4 });
+        const cap = F.layoutLabels(m, measure).labels.find(l => /SWR/.test(l.text));
+        assert.equal(cap.size, 4);
+        assert.equal(F.buildModel({ cellMm: 1, marginRight: 15, marginBack: 6 }).p.marginRight, 15);
     });
 });
 

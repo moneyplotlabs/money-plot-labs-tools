@@ -167,6 +167,18 @@
                     <label class="control-label-sm">Cap (years)<input type="number" id="in-cap" min="5" max="80" step="5" value="" placeholder="auto"></label>
                     <label class="control-label-sm">Contour every (yrs)<input type="number" id="in-cstep" min="1" max="20" step="1" value="" placeholder="auto"></label>
                 </div>
+                <label class="control-label-sm">Surface
+                    <select id="in-surf">
+                        <option value="portfolio" selected>Years to FI from your portfolio</option>
+                        <option value="zero">Years to FI from $0, with your NOW line</option>
+                    </select>
+                </label>
+                <div class="control-hint">From your portfolio (default): every point is your own years left if you
+                    earned and spent that much, so the surface answers what-ifs. From $0: years from nothing, which
+                    depend only on savings rate, so every contour is a ray from the origin and the surface is the
+                    same for everyone. The NOW line is your years left today: everyone on it, starting from $0, is as
+                    far from FI as you are. The drop from your dot down to it is the years your portfolio has already
+                    covered.</div>
             </div>
 
             <div class="advanced-toggle" id="print-button">
@@ -265,13 +277,21 @@
                     <label class="control-label-sm">Your lines' prefix<input type="text" id="in-you" maxlength="20" value="YOU"></label>
                     <label class="control-label-sm">Tick label size (mm)<input type="number" id="in-ticksize" min="3" max="10" step="0.5" value="" placeholder="auto"></label>
                     <label class="control-label-sm">Title size (mm)<input type="number" id="in-titlesize" min="3" max="12" step="0.5" value="" placeholder="auto"></label>
+                    <label class="control-label-sm">Caption + progress size (mm)<input type="number" id="in-capsize" min="3" max="12" step="0.5" value="" placeholder="auto: fits"></label>
+                </div>
+                <div class="fis-grid">
+                    <label class="control-label-sm">Front ledge (mm)<input type="number" id="in-mfront" min="2" max="60" step="0.5" value="" placeholder="auto"></label>
+                    <label class="control-label-sm">Left ledge (mm)<input type="number" id="in-mleft" min="2" max="60" step="0.5" value="" placeholder="auto"></label>
+                    <label class="control-label-sm">Right ledge (mm)<input type="number" id="in-mright" min="2" max="60" step="0.5" value="" placeholder="auto"></label>
+                    <label class="control-label-sm">Back ledge (mm)<input type="number" id="in-mback" min="2" max="60" step="0.5" value="" placeholder="auto"></label>
                 </div>
                 <label class="check-row"><input type="checkbox" id="in-showticks" checked> Tick labels</label>
                 <label class="check-row"><input type="checkbox" id="in-showcaption" checked> Caption</label>
                 <label class="check-row"><input type="checkbox" id="in-youdot" checked> Raised dot where your lines cross</label>
                 <label class="check-row"><input type="checkbox" id="in-site" checked> moneyplotlabs.com on the right ledge</label>
+                <label class="check-row"><input type="checkbox" id="in-progress" checked> Progress on the right ledge (e.g. OCT 2026 · 5.6 YRS DONE · 16.1 TO GO)</label>
                 <div class="control-hint">
-                    Leave a title empty to drop it. The ledges grow or shrink to fit the text. Each line's label goes
+                    Leave a title empty to drop it. Each ledge sizes itself to the text on it (the placeholder shows the auto width); type a width to override it. The front holds the tick labels, titles and caption; the right, the progress line and moneyplotlabs.com; the back stays empty unless the caption has no room in front. Letters are spaced for the nozzle so the walls between them print 2–3 lines wide. Each line's label goes
                     on its flattest free stretch; a contour with no room gets a short label ("25Y"), or none (smaller
                     line labels or a larger scale make room). Text is cut with straight walls and a flat floor, so letters stack cleanly
                     layer by layer. Fine resolution gives smoother letter edges. Print flat, no supports.

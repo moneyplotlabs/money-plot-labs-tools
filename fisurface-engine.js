@@ -134,7 +134,14 @@
         caption: true, captionText: '', youLabel: 'YOU', tickLabels: true,
         captionDate: '',            // e.g. 'OCT 2026': the dollars are that month's (real) dollars
         cornerMm: 4,                // radius of the footprint's four vertical corners (0 = square)
-        siteText: '',               // e.g. 'MONEYPLOTLABS.COM': small, on the right (or back) ledge
+        siteText: '',
+        // Surface heights: years to FI from your portfolio ('portfolio'), or from $0 ('zero': the
+        // savings-rate map, the same for everyone; every contour a ray from the origin). With
+        // 'zero', a NOW contour marks your years left today (nowYears; null = from your point).
+        surfaceFrom: 'portfolio', nowYears: null,
+        progressText: '',           // e.g. '5.5 YRS DONE · 16.1 TO GO': on the right ledge (with the date)
+        captionTextMm: null,        // caption and progress line size; null = as large as fits (≤ 0.8 × title)
+        measure: null,              // (text, sizeMm) → width in mm; null = an estimate (0.62 em per letter)               // e.g. 'MONEYPLOTLABS.COM': small, on the right (or back) ledge
     };
 
     const TEXT_GAP = 1.5;      // mm between the plot edge, tick labels and titles
@@ -146,17 +153,40 @@
         return Math.round(Math.max(f, f + Math.round((v - f) / p.layerMm) * p.layerMm) * 1e6) / 1e6;
     }
 
-    // Ledge widths: given, or just wide enough for the ledge text (16 / 8 mm at the defaults).
+    const approxMeasure = (text, size) => 0.62 * size * text.length;
+    const ROW = sz => 0.8 * sz + 1.6;                   // a row of ledge text: its height, and the gap after it
+    // The right ledge's first line: the month the dollars are in, and your progress (with the caption)
+    const dateLine = p => [p.caption ? p.captionDate : '', p.progressText].filter(Boolean).join(' · ');
+
+    // The caption's size beside the income title on the front ledge, or 0 if it does not fit there.
+    function captionFrontSize(p, measure, W) {
+        const cap = p.captionText || autoCaption(p), room = W - (p.incomeTitle ? measure(p.incomeTitle, p.titleTextMm) : 0) - 6;
+        const sz = p.captionTextMm || Math.min(p.titleTextMm * 0.8, room / measure(cap, 1));
+        return sz >= p.tickTextMm * 0.75 && measure(cap, sz) <= room + 1e-9 ? sz : 0;
+    }
+
+    // Ledge widths: given, or just wide enough for the text on them. Front and left: tick labels,
+    // then the titles (and the caption). Right: the progress line, then the site address, in rows
+    // reading along the ledge. Back: only a caption with no room on the front. The far tick labels
+    // are centered on the plot's right and back edges, so those ledges also hold their outer half.
     function resolveMargins(p) {
-        const ticks = p.tickLabels ? TEXT_GAP + p.tickTextMm : 0;
+        const measure = p.measure || approxMeasure;
+        const ticksRow = p.tickLabels ? TEXT_GAP + p.tickTextMm : 0;
         const titleRow = (p.incomeTitle || p.caption) ? TEXT_GAP + p.titleTextMm : 0;
         const titleCol = p.expenseTitle ? TEXT_GAP + p.titleTextMm : 0;
-        const edge = p.inlineTextMm + 3.5;              // room for the site text or a moved caption
+        const capSz = p.captionTextMm || p.titleTextMm * 0.8;
+        const overhang = (lo, hi, step, span) => {
+            if (!p.tickLabels) return 0;
+            const t = ticks(lo, hi, step).filter(v => v <= hi + 1e-9).pop();
+            return t == null ? 0 : measure(kLabel(t), p.tickTextMm) / 2 + 2.5 - (hi - t) / (hi - lo) * span;
+        };
+        const right = 1.2 + (dateLine(p) ? ROW(capSz) : 0) + (p.siteText ? ROW(p.tickTextMm * 0.75) : 0);
+        const back = p.caption && !captionFrontSize(p, measure, p.widthMm) ? 1.2 + ROW(capSz) : 0;
         return {
-            marginFront: p.marginFront != null ? p.marginFront : Math.max(4, ticks + titleRow + 2.5),
-            marginLeft:  p.marginLeft  != null ? p.marginLeft  : Math.max(4, ticks + titleCol + 2.5),
-            marginBack:  p.marginBack  != null ? p.marginBack  : edge,
-            marginRight: p.marginRight != null ? p.marginRight : edge,
+            marginFront: p.marginFront != null ? p.marginFront : Math.max(4, ticksRow + titleRow + 2.5),
+            marginLeft:  p.marginLeft  != null ? p.marginLeft  : Math.max(4, ticksRow + titleCol + 2.5),
+            marginBack:  p.marginBack  != null ? p.marginBack  : Math.max(4, back, overhang(p.expenseRange[0], p.expenseRange[1], p.expenseStep, p.depthMm)),
+            marginRight: p.marginRight != null ? p.marginRight : Math.max(4, right, overhang(p.incomeRange[0], p.incomeRange[1], p.incomeStep, p.widthMm)),
         };
     }
 
@@ -193,6 +223,7 @@
         const W = p.widthMm, D = p.depthMm;
         const [I0, I1] = p.incomeRange, [X0, X1] = p.expenseRange;
         const { R, S, P0 } = p, cap = p.capYears;
+        const Ps = p.surfaceFrom === 'zero' ? 0 : P0;        // the portfolio the surface starts from
 
         const nx = Math.round((ml + W + mr) / cell) + 1;
         const ny = Math.round((mf + D + mb) / cell) + 1;
@@ -208,7 +239,7 @@
         const zPerYear = p.heightMm / cap;
         const zCap = p.baseMm + p.liftMm + p.heightMm;    // the plateau: years at or beyond the cap
         const surfaceAt = (x, y) => p.baseMm + p.liftMm + zPerYear * Math.min(cap,
-            yearsToFI(I0 + (x - ml) / W * (I1 - I0), X0 + (y - mf) / D * (X1 - X0), R, S, P0));
+            yearsToFI(I0 + (x - ml) / W * (I1 - I0), X0 + (y - mf) / D * (X1 - X0), R, S, Ps));
         for (let iy = 0; iy < ny; iy++) {
             const y = iy * cell, X = X0 + (y - mf) / D * (X1 - X0);
             for (let ix = 0; ix < nx; ix++) {
@@ -216,7 +247,7 @@
                 if (inPlot(x, y)) {
                     const I = I0 + (x - ml) / W * (I1 - I0);
                     plot[k] = 1;
-                    z[k] = p.baseMm + p.liftMm + Math.min(yearsToFI(I, X, R, S, P0), cap) * zPerYear;
+                    z[k] = p.baseMm + p.liftMm + Math.min(yearsToFI(I, X, R, S, Ps), cap) * zPerYear;
                 } else {
                     z[k] = p.baseMm;
                 }
@@ -226,8 +257,17 @@
         // Raised lines, each a distance field in mm. Contours are straight rays out of the
         // focal point, so every ridge prints at the same width however steep the surface is.
         const lines = [];
-        const fp = focalPoint(R, S, P0), fx = toX(fp.I), fy = toY(fp.X);
-        for (const L of p.contourYears) {
+        const fp = focalPoint(R, S, Ps), fx = toX(fp.I), fy = toY(fp.X);
+        // From $0, your years left today are one level of the surface: the NOW contour (everyone
+        // on it, starting from $0, is exactly as far from FI as you are now). A regular contour
+        // within half a year of it gives way.
+        const nowL = p.surfaceFrom === 'zero'
+            ? (p.nowYears != null ? p.nowYears : yearsToFI(p.youIncome, p.youExpenses, R, S, P0)) : null;
+        const hasNow = nowL > 0 && nowL < cap;
+        const levels = p.contourYears.filter(L => !(hasNow && Math.abs(L - nowL) < 0.5)).map(L => ({ L, now: false }));
+        if (hasNow) levels.push({ L: nowL, now: true });
+        levels.sort((a, b) => a.L - b.L);
+        for (const { L, now } of levels) {
             if (!(L > 0 && L <= cap)) continue;
             let ux = W / (I1 - I0), uy = contourSlope(L, R, S) * D / (X1 - X0);
             const len = Math.hypot(ux, uy); ux /= len; uy /= len;
@@ -235,7 +275,7 @@
             const zLine = snapToLayer(p.baseMm + p.liftMm + L * zPerYear, p);
             const top = snapToLayer(zLine + p.contourRidge.height, p);
             lines.push(Object.assign({
-                kind: 'contour', value: L, angle: Math.atan2(uy, ux) * 180 / Math.PI, ux, uy, fx, fy,
+                kind: 'contour', value: L, now, angle: Math.atan2(uy, ux) * 180 / Math.PI, ux, uy, fx, fy,
                 shape: p.contourShape, zLine, top: () => top,
                 // uphill is d < 0 (more expenses, more years); the cap contour borders the flat
                 // plateau, which never climbs back to the step's top, so it is not filled
@@ -396,10 +436,11 @@
     }
 
     // ── Labels ──────────────────────────────────────────────────
-    // "OCT 2026 · $250k SAVED · 5% RETURN · 4% SWR": every amount is in that month's dollars
+    // "$250k SAVED · 5% RETURN · 4% SWR". The month its dollars are in goes on the right ledge,
+    // with the progress line: "OCT 2026 · 5.6 YRS DONE · 16.1 TO GO".
     function autoCaption(p) {
         const pct = v => String(Math.round(v * 1000) / 10) + '%';
-        return [p.captionDate, '$' + kLabel(p.P0) + ' SAVED', pct(p.R) + ' RETURN', pct(p.S) + ' SWR']
+        return [p.surfaceFrom === 'zero' ? 'FROM $0' : '$' + kLabel(p.P0) + ' SAVED', pct(p.R) + ' RETURN', pct(p.S) + ' SWR']
             .filter(Boolean).join(' · ');
     }
 
@@ -408,6 +449,7 @@
     // the label's center (mm) and angle is counter-clockwise in degrees, seen from above.
     function layoutLabels(model, measure) {
         const { p, nx, ny, cell, z } = model;
+        measure = measure || p.measure || approxMeasure;
         const ml = p.marginLeft, mf = p.marginFront, mr = p.marginRight, mb = p.marginBack;
         const W = p.widthMm, D = p.depthMm;
         const [I0, I1] = p.incomeRange, [X0, X1] = p.expenseRange;
@@ -464,25 +506,24 @@
         // model, else slid inward (one that would still overlap a neighbor is dropped).
         for (const t of p.tickLabels ? ticks(I0, I1, p.incomeStep) : []) {
             const w = measure(kLabel(t), ts), tx = p.marginLeft + (t - I0) / (I1 - I0) * W, ty = mf - gap - ts / 2;
-            putBest(kLabel(t), ts, [[clamp(tx, 1 + w / 2, totalW - 1 - w / 2), ty, 0], [clamp(tx, ml + w / 2, ml + W - w / 2), ty, 0]],
+            putBest(kLabel(t), ts, [[clamp(tx, 2.5 + w / 2, totalW - 2.5 - w / 2), ty, 0], [clamp(tx, ml + w / 2, ml + W - w / 2), ty, 0]],
                     anywhere, (fp, x) => Math.abs(x - tx));
         }
         for (const t of p.tickLabels ? ticks(X0, X1, p.expenseStep) : []) {
             const w = measure(kLabel(t), ts), tx = ml - gap - ts / 2, ty = mf + (t - X0) / (X1 - X0) * D;
-            putBest(kLabel(t), ts, [[tx, clamp(ty, 1 + w / 2, totalD - 1 - w / 2), 90], [tx, clamp(ty, mf + w / 2, mf + D - w / 2), 90]],
+            putBest(kLabel(t), ts, [[tx, clamp(ty, 2.5 + w / 2, totalD - 2.5 - w / 2), 90], [tx, clamp(ty, mf + w / 2, mf + D - w / 2), 90]],
                     anywhere, (fp, x, y) => Math.abs(y - ty));
         }
         const tickRoom = p.tickLabels ? gap + ts : 0;
         const titleY = mf - tickRoom - gap - tt / 2, titleW = p.incomeTitle ? measure(p.incomeTitle, tt) : 0;
         if (p.incomeTitle) put(p.incomeTitle, tt, ml + titleW / 2, titleY, 0);
         if (p.expenseTitle) put(p.expenseTitle, tt, ml - tickRoom - gap - tt / 2, mf + D / 2, 90);
-        // Caption: beside the title, shrinking to fit down to 3/4 of the tick-label size; if it
-        // still doesn't fit, on the back ledge (placed after the contour labels, below)
+        // Caption: beside the title (at its set size, or shrinking to fit down to 3/4 of the
+        // tick-label size); if it doesn't fit, on the back ledge (placed last, below)
         let backCaption = null;
         if (p.caption) {
-            const cap = p.captionText || autoCaption(p);
-            const sz = Math.min(tt * 0.8, (W - titleW - 6) / measure(cap, 1));
-            if (sz >= ts * 0.75) put(cap, sz, ml + W - measure(cap, sz) / 2, titleY, 0);
+            const cap = p.captionText || autoCaption(p), sz = captionFrontSize(p, measure, W);
+            if (sz) put(cap, sz, ml + W - measure(cap, sz) / 2, titleY, 0);
             else backCaption = cap;
         }
 
@@ -525,11 +566,13 @@
             if (ln.kind === 'youIncome') {
                 const xs = model.toX(ln.value);
                 name = youName(ln.value);
-                ok = inline(name, linspace(mf, mf + D, 40).map(y => [xs, y]), 90, ln.width);
+                ok = inline(name, linspace(mf, mf + D, 40).map(y => [xs, y]), 90, ln.width)
+                  || (p.youLabel && inline(p.youLabel, linspace(mf, mf + D, 40).map(y => [xs, y]), 90, ln.width));
             } else if (ln.kind === 'youExpenses') {
                 const ys = model.toY(ln.value);
                 name = youName(ln.value);
-                ok = inline(name, linspace(ml, ml + W, 40).map(x => [x, ys]), 0, ln.width);
+                ok = inline(name, linspace(ml, ml + W, 40).map(x => [x, ys]), 0, ln.width)
+                  || (p.youLabel && inline(p.youLabel, linspace(ml, ml + W, 40).map(x => [x, ys]), 0, ln.width));
             } else {
                 // the stretch of the ray inside the plot (Liang–Barsky clip)
                 let t0 = 0, t1 = Infinity;
@@ -540,7 +583,8 @@
                 }
                 if (!(t1 > t0)) continue;                      // contour lies outside the window
                 const plus = ln.value >= p.capYears ? '+' : '';
-                name = `${ln.value}${plus} YRS`;
+                const yrs = ln.now ? (Math.round(ln.value * 10) / 10).toFixed(1) : ln.value;
+                name = ln.now ? `NOW ${yrs} YRS` : `${ln.value}${plus} YRS`;
                 const pts = linspace(t0, t1, 60).map(t => [ln.fx + t * ln.ux, ln.fy + t * ln.uy]);
                 // labels keep clear of the shape, which sits uphill of the line (toward −uy, ux)
                 const w = ln.shape === 'none' ? 0 : ln.width;
@@ -550,23 +594,43 @@
                 // (with no room, the short form; with none for that either, no label: one off on a
                 // ledge reads as belonging to nothing)
                 ok = inline(name, mid, readable(ln.angle), w, [-ln.uy, ln.ux])
-                  || inline(`${ln.value}${plus}Y`, mid, readable(ln.angle), w, [-ln.uy, ln.ux]);
+                  || inline(ln.now ? `NOW ${yrs}Y` : `${ln.value}${plus}Y`, mid, readable(ln.angle), w, [-ln.uy, ln.ux])
+                  || (ln.now && inline('NOW', mid, readable(ln.angle), w, [-ln.uy, ln.ux]));
             }
             if (!ok) skipped.push(name);
         }
         if (backCaption) {                                     // the back ledge's free stretch nearest center
-            const sz = Math.min(tt * 0.8, mb - 2, (W - 4) / measure(backCaption, 1)), w = measure(backCaption, sz);
+            const sz = p.captionTextMm || Math.min(tt * 0.8, (mb - 2.2) / 0.8, (W - 4) / measure(backCaption, 1)), w = measure(backCaption, sz);
             const cands = [];
             for (let x = ml + w / 2; x <= ml + W - w / 2 + 1e-9; x += 1) cands.push([x, mf + D + mb / 2, 0]);
             if (!(sz >= ts * 0.75 && putBest(backCaption, sz, cands, onLedge, (fp, x) => Math.abs(x - ml - W / 2))))
                 skipped.push(backCaption);
         }
-        if (p.siteText) {                                      // right ledge from the back (clear of the front axis labels), else the back ledge
-            const sz = Math.min(ts * 0.75, mr - 2), w = measure(p.siteText, sz), cands = [];
-            for (let y = mf + D - w / 2; y >= mf + w / 2 - 1e-9; y -= 1) cands.push([ml + W + mr / 2, y, 90]);
-            for (let x = ml + W - w / 2; x >= ml + w / 2 - 1e-9; x -= 1) cands.push([x, mf + D + mb / 2, 0]);
-            if (!(sz >= 3 && putBest(p.siteText, sz, cands, onLedge, (fp, x, y) => (y > mf + D ? D + (ml + W - x) : mf + D - y))))
-                skipped.push(p.siteText);
+        // Right ledge, reading along it (bottom to top, seen from the right): the progress line
+        // in the row beside the plot, from the front; the site address in the outer row, from
+        // the back. Either moves on to the back ledge if it has no room there.
+        const rightRow = (sz, outer) => outer ? totalW - 1.2 - 0.4 * sz : ml + W + 1.2 + 0.4 * sz;
+        const backRow = [];
+        const along = (t, sz, x, fromFront) => {
+            const w = measure(t, sz), out = [];
+            for (let y = mf + w / 2; y <= totalD - 2.5 - w / 2 + 1e-9; y += 1) out.push([x, y, 90]);   // (on into the empty back corner)
+            return fromFront ? out : out.reverse();
+        };
+        if (dateLine(p)) {
+            const t = dateLine(p);
+            const sz = p.captionTextMm || Math.min(tt * 0.8, (totalD - mf - 3.5) / measure(t, 1));
+            const ok = sz >= ts * 0.75 && putBest(t, sz, along(t, sz, rightRow(sz, false), true), onLedge, (fp, x, y) => y);
+            if (!ok) backRow.push([t, p.captionTextMm || Math.min(tt * 0.8, (mb - 2.2) / 0.8, (W - 4) / measure(t, 1))]);
+        }
+        if (p.siteText) {
+            const sz = ts * 0.75;
+            const cands = [...along(p.siteText, sz, rightRow(sz, true), false), ...along(p.siteText, sz, ml + W + mr / 2, false)];
+            if (!putBest(p.siteText, sz, cands, onLedge, (fp, x, y) => (totalW - x) + (mf + D - y))) backRow.push([p.siteText, sz]);
+        }
+        for (const [t, sz] of backRow) {                     // the back ledge, nearest its center
+            const w = measure(t, sz), cands = [];
+            for (let x = ml + w / 2; x <= ml + W - w / 2 + 1e-9; x += 1) cands.push([x, mf + D + mb / 2, 0]);
+            if (!(sz >= 3 && putBest(t, sz, cands, onLedge, (fp, x) => Math.abs(x - ml - W / 2)))) skipped.push(t);
         }
         return { labels, skipped };
     }
@@ -839,6 +903,7 @@
         const L = p.layerMm, events = [];               // [z, color, why]
         let start = 'body';
         const contours = model.lines.filter(l => l.kind === 'contour').sort((a, b) => a.value - b.value);
+        const nm = ln => ln.now ? `NOW (${(Math.round(ln.value * 10) / 10).toFixed(1)}-year)` : `${ln.value}-year`;
         if (opts.baseLabels && p.textMode !== 'none') {
             if (p.textMode === 'deboss') {
                 start = 'accent';
@@ -852,7 +917,7 @@
             // the layer that shows as the line: a step's top, or the line's own height
             for (const ln of contours) {
                 const z = layerTop(ln.shape === 'step' ? Math.min(ln.top(), model.zCap) : ln.zLine, p);
-                events.push([z, 'accent', `${ln.value}-year line`]);
+                events.push([z, 'accent', `${nm(ln)} line`]);
                 events.push([z + L, 'body', '']);
             }
         } else if (opts.contours === 'bands') {
@@ -862,7 +927,7 @@
                 accent = !accent;
                 // (the cap contour's band is the flat plateau: it starts on the plateau's own top layer)
                 const z = layerTop(ln.zLine, p) + (ln.value >= p.capYears ? 0 : L);
-                events.push([z, accent ? 'accent' : 'body', ln.value >= p.capYears ? `${ln.value}+ years (plateau)` : `above ${ln.value} years`]);
+                events.push([z, accent ? 'accent' : 'body', ln.value >= p.capYears ? `${ln.value}+ years (plateau)` : ln.now ? `above ${nm(ln)} line` : `above ${ln.value} years`]);
             }
         }
         events.sort((a, b) => a[0] - b[0]);

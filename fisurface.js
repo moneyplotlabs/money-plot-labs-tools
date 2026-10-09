@@ -51,10 +51,12 @@ const TARGET_SIZE_MM = [225, 150];
 
 // Nozzle presets: the smallest text and line widths that print cleanly. Letter strokes and the
 // gaps inside letters are about 0.15× the text size, and want two or more extrusion lines,
-// as do the raised lines. (Orders print on the shop's 0.6 mm nozzle.)
+// as do the raised lines. Bold Arial sets letters only ~0.12× the size apart, about one line
+// of a 0.6 mm nozzle, so `track` adds space between letters (× text size): with it the wall
+// between two letters is 2–3 lines wide. (Orders print on the shop's 0.6 mm nozzle.)
 const NOZZLES = {
-    0.4: { tick: 5, title: 5.5, inline: 4.5, contour: 1.2, you: 1.6, grid: 0.8 },
-    0.6: { tick: 6, title: 6.5, inline: 5.5, contour: 1.4, you: 1.8, grid: 1.2 },
+    0.4: { tick: 5, title: 5.5, inline: 4.5, contour: 1.2, you: 1.6, grid: 0.8, track: 0.10 },
+    0.6: { tick: 6, title: 6.5, inline: 5.5, contour: 1.4, you: 1.8, grid: 1.2, track: 0.15 },
 };
 const ORDER_MAX_MM = [230, 160, 70];
 const ORDER_NOZZLE = '0.6';     // orders are printed with this nozzle's preset (or larger text)
@@ -128,7 +130,8 @@ const INPUTS = {           // URL key → input id
     stk: 'in-showticks', scap: 'in-showcaption', lh: 'in-layer', fl: 'in-first', nz: 'in-nozzle',
     bx: 'in-bedx', by: 'in-bedy', bz: 'in-bedz', inf: 'in-inflation', bp: 'in-bp',
     cc: 'in-ccontours', cl: 'in-clabels', csh: 'in-cshape', cb: 'in-cbody', ca: 'in-caccent', pc: 'in-colors',
-    dot: 'in-youdot', site: 'in-site', cr: 'in-corner',
+    dot: 'in-youdot', site: 'in-site', cr: 'in-corner', sf: 'in-surf', prog: 'in-progress',
+    cps: 'in-capsize', mf: 'in-mfront', ml: 'in-mleft', mr: 'in-mright', mb: 'in-mback',
 };
 const SITE_TEXT = 'MONEYPLOTLABS.COM';
 const isCheck = id => $(id).type === 'checkbox';
@@ -158,7 +161,8 @@ function readParams() {
     const S = Math.max(0.005, num('in-swr', 4) / 100);
     const P0 = Math.max(0, num('in-portfolio', 0));
     const b = autoBasis;
-    const capAuto = autoCap(FISurface.yearsToFI(b.I, b.X, b.R, b.S, b.P0));
+    const fromZero = $('in-surf').value === 'zero';
+    const capAuto = autoCap(FISurface.yearsToFI(b.I, b.X, b.R, b.S, fromZero ? 0 : b.P0));
     const cap = Math.min(80, Math.max(5, num('in-cap', capAuto)));
     const cstepAuto = autoContourStep(cap);
     const cstep = Math.max(1, num('in-cstep', cstepAuto));
@@ -169,13 +173,30 @@ function readParams() {
     // of income and a dollar of spending the same distance apart, so slopes compare fairly.
     const nozzle = NOZZLES[$('in-nozzle').value] ? $('in-nozzle').value : '0.6';
     const nz = NOZZLES[nozzle];
+    trackingEm = nz.track;                               // (measure() spaces letters for this nozzle)
+    const ledge = v => { const x = num(v, NaN); return isFinite(x) ? clampTo(x, 2, 60) : null; };
+    const incomeStep = Math.max((iMax - iMin) / 20, num('in-istep', auto.incomeStep));
+    const expenseStep = Math.max((xMax - xMin) / 20, num('in-xstep', auto.expenseStep));
+    // everything that decides how wide the ledges are (the text on them)
     const textSizes = {
         tickTextMm: clampTo(num('in-ticksize', nz.tick), 3, 10), titleTextMm: clampTo(num('in-titlesize', nz.title), 3, 12),
         inlineTextMm: clampTo(num('in-tsize', nz.inline), 3, 10), tickLabels: $('in-showticks').checked,
         incomeTitle: $('in-ititle').value.trim(), expenseTitle: $('in-xtitle').value.trim(), caption: $('in-showcaption').checked,
+        captionText: $('in-caption').value.trim(), captionDate: designMonthLabel(),
+        captionTextMm: isFinite(num('in-capsize', NaN)) ? clampTo(num('in-capsize', 0), 3, 12) : null,
+        siteText: $('in-site').checked ? SITE_TEXT : '',
+        surfaceFrom: fromZero ? 'zero' : 'portfolio',
+        progressText: $('in-progress').checked ? progressCaption(num('in-income', 0), num('in-expenses', 0), R, S, P0) : '',
+        marginFront: ledge('in-mfront'), marginLeft: ledge('in-mleft'), marginRight: ledge('in-mright'), marginBack: ledge('in-mback'),
+        measure,
     };
-    const margins = FISurface.resolveMargins(Object.assign({}, FISurface.DEFAULTS, textSizes));
-    const scaleAuto = autoScale(iMax - iMin, xMax - xMin, margins);
+    // auto scale fits the whole model, ledges included; the ledges depend a little on the plot's
+    // size (the caption fits beside the title, or not), so fit twice
+    const ledgesFor = (w, d) => FISurface.resolveMargins(Object.assign({}, FISurface.DEFAULTS, textSizes,
+        { R, S, P0, incomeRange: [iMin, iMax], expenseRange: [xMin, xMax], incomeStep, expenseStep, widthMm: w, depthMm: d }));
+    let scaleAuto = autoScale(iMax - iMin, xMax - xMin, ledgesFor(200, 120));
+    scaleAuto = autoScale(iMax - iMin, xMax - xMin, ledgesFor((iMax - iMin) / 1e4 * scaleAuto, (xMax - xMin) / 1e4 * scaleAuto));
+    const margins = ledgesFor((iMax - iMin) / 1e4 * scaleAuto, (xMax - xMin) / 1e4 * scaleAuto);
     const iScale = clampTo(num('in-iscale', scaleAuto), 0.5, 100);
     const xScale = clampTo(num('in-xscale', iScale), 0.5, 100);
     const exportCell = parseFloat($('in-cell').value) || 0.25;
@@ -183,7 +204,9 @@ function readParams() {
     const ph = { 'in-imin': auto.iMin, 'in-imax': auto.iMax, 'in-xmin': auto.xMin, 'in-xmax': auto.xMax,
                  'in-istep': auto.incomeStep, 'in-xstep': auto.expenseStep, 'in-iscale': scaleAuto,
                  'in-cap': capAuto, 'in-cstep': cstepAuto,
-                 'in-ticksize': nz.tick, 'in-titlesize': nz.title, 'in-tsize': nz.inline };
+                 'in-ticksize': nz.tick, 'in-titlesize': nz.title, 'in-tsize': nz.inline,
+                 'in-mfront': +margins.marginFront.toFixed(1), 'in-mleft': +margins.marginLeft.toFixed(1),
+                 'in-mright': +margins.marginRight.toFixed(1), 'in-mback': +margins.marginBack.toFixed(1) };
     for (const [id, v] of Object.entries(ph)) $(id).placeholder = 'auto: ' + v;
     return {
         R, S, P0, nozzle,
@@ -192,8 +215,7 @@ function readParams() {
         rawIncome: num('in-income', 0), rawExpenses: num('in-expenses', 0),
         incomeRange: [iMin, iMax], expenseRange: [xMin, xMax],
         capYears: cap, contourYears,
-        incomeStep: Math.max((iMax - iMin) / 20, num('in-istep', auto.incomeStep)),
-        expenseStep: Math.max((xMax - xMin) / 20, num('in-xstep', auto.expenseStep)),
+        incomeStep, expenseStep,
         incomeScale: iScale, expenseScale: xScale,
         widthMm: clampTo((iMax - iMin) / 1e4 * iScale, 20, 1000),
         depthMm: clampTo((xMax - xMin) / 1e4 * xScale, 20, 1000),
@@ -207,11 +229,9 @@ function readParams() {
         exportCellMm: exportCell,
         cellMm: Math.max(exportCell, PREVIEW_CELL_MM),
         ...textSizes,
-        captionText: $('in-caption').value.trim(),
-        captionDate: designMonthLabel(),
         youLabel: $('in-you').value.trim(),
         youMarker: $('in-youdot').checked ? { diameterMm: 8, heightMm: 3 } : null,
-        siteText: $('in-site').checked ? SITE_TEXT : '',
+        nowYears: FISurface.yearsToFI(num('in-income', 0), num('in-expenses', 0), R, S, P0),
         bed: [num('in-bedx', 250), num('in-bedy', 210), num('in-bedz', 210)],
         // Auto: a step reads in one color; a cut shelf gives an accent line an even width;
         // bands need no shape (the color change at the line's height is the line)
@@ -234,10 +254,26 @@ function fmtYears(n) {
     return n.toFixed(1) + ' yrs';
 }
 
+// Progress at your own income and spending: from $0 it would take n0 years; your portfolio is
+// worth n0 − n of them (the years it takes to save it at your rate), leaving n.
+function progress(I, X, R, S, P0) {
+    const n = FISurface.yearsToFI(I, X, R, S, P0), n0 = FISurface.yearsToFI(I, X, R, S, 0);
+    return { n, n0, done: isFinite(n0) && isFinite(n) ? n0 - n : null };
+}
+const yrs1 = v => (Math.round(v * 10) / 10).toFixed(1);
+function progressCaption(I, X, R, S, P0) {
+    const { n, done } = progress(I, X, R, S, P0);
+    if (n === 0) return 'FI REACHED';
+    if (!isFinite(n)) return '';
+    return done === null ? `${yrs1(n)} YRS TO GO` : `${yrs1(done)} YRS DONE · ${yrs1(n)} TO GO`;
+}
+
 function updateMetrics(p) {
     const s = FISurface.sensitivities(p.rawIncome, p.rawExpenses, p.R, p.S, p.P0);
     $('metric-years').textContent = fmtYears(s.years);
-    $('metric-years-sub').textContent = `FI number ${formatCurrency(s.fiNumber)}`;
+    const pr = progress(p.rawIncome, p.rawExpenses, p.R, p.S, p.P0);
+    $('metric-years-sub').textContent = `FI number ${formatCurrency(s.fiNumber)}`
+        + (pr.done > 0 && pr.n > 0 ? ` · ${yrs1(pr.done)} of ${yrs1(pr.n0)} yrs done` : '');
     const yrs = v => v === null ? '–' : v.toFixed(2);
     $('metric-spend').textContent = yrs(s.perKExpenses);
     $('metric-spend-sub').textContent = s.spendVsIncome === null ? 'years sooner'
@@ -247,10 +283,20 @@ function updateMetrics(p) {
 }
 
 // ── Text: measure + rasterize with a canvas ────────────────────
+// Letters are set one by one, `trackingEm` × the size apart (set per nozzle in buildPrint), so
+// measure() and the rasterizer agree on every width.
 const measureCtx = document.createElement('canvas').getContext('2d');
+let trackingEm = NOZZLES[0.6].track;
+const charEm = new Map();                // advance width of each character, × text size
+function charWidths(text) {
+    return [...text].map(ch => {
+        if (!charEm.has(ch)) { measureCtx.font = `bold 100px ${FONT}`; charEm.set(ch, measureCtx.measureText(ch).width / 100); }
+        return charEm.get(ch);
+    });
+}
 function measure(text, sizeMm) {
-    measureCtx.font = `bold 100px ${FONT}`;
-    return measureCtx.measureText(text).width * sizeMm / 100;
+    const w = charWidths(text);
+    return (w.reduce((a, b) => a + b, 0) + trackingEm * Math.max(0, w.length - 1)) * sizeMm;
 }
 
 // Coverage (0..1) of every grid cell by the labels, supersampled 4×. Cells are the
@@ -261,15 +307,17 @@ function rasterizeLabels(model, labels) {
     cv.width = cx * ss; cv.height = cy * ss;
     const ctx = cv.getContext('2d', { willReadFrequently: true });
     ctx.fillStyle = '#fff';
-    ctx.textAlign = 'center';
+    ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     for (const l of labels) {
         ctx.save();
         // canvas row 0 is the back edge (max y), so text reads correctly from above
         ctx.translate(l.x / cell * ss, (cy - l.y / cell) * ss);
         ctx.rotate(-l.angle * Math.PI / 180);
-        ctx.font = `bold ${l.size / cell * ss}px ${FONT}`;
-        ctx.fillText(l.text, 0, 0);
+        const px = l.size / cell * ss, chars = [...l.text], w = charWidths(l.text);
+        ctx.font = `bold ${px}px ${FONT}`;
+        let x = -measure(l.text, l.size) / cell * ss / 2;
+        chars.forEach((ch, i) => { ctx.fillText(ch, x, 0); x += (w[i] + trackingEm) * px; });
         ctx.restore();
     }
     const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
@@ -288,6 +336,7 @@ function rasterizeLabels(model, labels) {
 let current = null;      // { params, model, mesh, skipped, plan }
 
 function buildPrint(p, cellMm) {
+    trackingEm = (NOZZLES[p.nozzle] || NOZZLES[0.6]).track;
     const model = FISurface.buildModel(Object.assign({}, p, { cellMm }));
     let text = null, skipped = [];
     if (p.textMode !== 'none') {
@@ -644,7 +693,7 @@ function drawMap(p) {
         const X = X1 - (j + 0.5) / gh * (X1 - X0);
         for (let i = 0; i < gw; i++) {
             const I = I0 + (i + 0.5) / gw * (I1 - I0);
-            const n = FISurface.yearsToFI(I, X, p.R, p.S, p.P0);
+            const n = FISurface.yearsToFI(I, X, p.R, p.S, surfaceP0(p));
             const c = viridis(Math.min(n, p.capYears) / p.capYears), o = 4 * (j * gw + i);
             img.data[o] = c[0]; img.data[o + 1] = c[1]; img.data[o + 2] = c[2]; img.data[o + 3] = 255;
         }
@@ -658,16 +707,19 @@ function drawMap(p) {
     // contours: straight rays from the focal point
     ctx.save();
     ctx.beginPath(); ctx.rect(l, t, pw, ph); ctx.clip();
-    const f = FISurface.focalPoint(p.R, p.S, p.P0);
-    ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1;
-    for (const L of p.contourYears) {
+    const f = FISurface.focalPoint(p.R, p.S, surfaceP0(p));
+    const ray = L => {
         const m = FISurface.contourSlope(L, p.R, p.S);
         const Iend = I1 + (I1 - I0);                      // far enough to leave the window
         ctx.beginPath();
         ctx.moveTo(sx(f.I), sy(f.X));
         ctx.lineTo(sx(Iend), sy(f.X + m * (Iend - f.I)));
         ctx.stroke();
-    }
+    };
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1;
+    for (const L of p.contourYears) ray(L);
+    const now = nowLine(p);
+    if (now) { ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2.5; ray(now); }
     // your point
     ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(255,255,255,0.55)';
     ctx.beginPath(); ctx.moveTo(sx(p.rawIncome), t); ctx.lineTo(sx(p.rawIncome), t + ph);
@@ -689,6 +741,13 @@ function drawMap(p) {
         placed.push([ex, ey]);
         ctx.fillText(`${L}${L >= p.capYears ? '+' : ''}y`, ex, ey);
     }
+    if (now) {                                            // the NOW label, beside your point
+        ctx.fillStyle = '#fbbf24'; ctx.textAlign = 'left';
+        const m = FISurface.contourSlope(now, p.R, p.S), Xn = Math.min(Math.max(p.rawExpenses, X0), X1);
+        const In = f.I + (Xn - f.X) / m;                     // where your expense line meets it
+        ctx.fillText(`NOW ${yrs1(now)}y`, Math.min(sx(In) + 8, l + pw - 60), Math.max(sy(Xn) - 10, t + 9));
+        ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+    }
 
     // axes
     ctx.strokeStyle = THEME.border; ctx.strokeRect(l, t, pw, ph);
@@ -702,6 +761,10 @@ function drawMap(p) {
     ctx.fillText('Expenses ($/yr)', 0, 0); ctx.restore();
 }
 
+// The portfolio the surface starts from, and (from $0) your years left today as a contour
+const surfaceP0 = p => p.surfaceFrom === 'zero' ? 0 : p.P0;
+const nowLine = p => p.surfaceFrom === 'zero' && p.nowYears > 0 && p.nowYears < p.capYears ? p.nowYears : null;
+
 function onMapHover(e) {
     const tip = $('map-tip');
     if (!map.p) return;
@@ -711,7 +774,9 @@ function onMapHover(e) {
     const I = p.incomeRange[0] + (x - l) / map.pw * (p.incomeRange[1] - p.incomeRange[0]);
     const X = p.expenseRange[1] - (y - t) / map.ph * (p.expenseRange[1] - p.expenseRange[0]);
     const n = FISurface.yearsToFI(I, X, p.R, p.S, p.P0);
-    tip.innerHTML = `Income ${formatCurrency(I)} · Expenses ${formatCurrency(X)}<br><strong>${fmtYears(n)}</strong>`;
+    tip.innerHTML = `Income ${formatCurrency(I)} · Expenses ${formatCurrency(X)}<br>` + (p.surfaceFrom === 'zero'
+        ? `<strong>${fmtYears(FISurface.yearsToFI(I, X, p.R, p.S, 0))}</strong> from $0 · ${fmtYears(n)} with your portfolio`
+        : `<strong>${fmtYears(n)}</strong>`);
     tip.hidden = false;
     tip.style.left = Math.min(x + 14, map.W - tip.offsetWidth - 4) + 'px';
     tip.style.top = Math.max(y - tip.offsetHeight - 10, 4) + 'px';
@@ -763,6 +828,7 @@ function setView(v) {
     $('view-map').hidden = v !== 'map';
     $('view-time').hidden = v !== 'time';
     $('in-colors').hidden = v !== 'print';               // preview colors only apply to the 3D view
+    if (v !== 'print') $('viewer-msg').hidden = true;    // (the 3D build message belongs to the 3D view)
     const p = readParams();
     if (v === 'map') drawMap(p);
     if (v === 'time') { if (timeChart) timeChart.resize(); drawTimeline(p); }
